@@ -1,0 +1,27 @@
+{
+  "name": "jbaron/fal_database",
+  "description": "TYPO3 FAL storage driver for storing files in the database",
+  "type": "typo3-cms-extension",
+  "license": "MIT",
+  "keywords": [
+    "TYPO3 CMS",
+    "FAL",
+    "Database"
+  ],
+  "authors": [
+    {
+      "name": "Jost Baron",
+      "email": "jost.baron@mein-bauernhof.de",
+      "role": "Developer"
+    }
+  ],
+  "autoload": {
+    "psr-4": {
+      "Jbaron\\FalDatabase\\": "Classes/"
+    }
+  },
+  "require": {
+    "typo3/cms-core": "^8.7",
+    "php": "~7.1.0|~7.2.0"
+  }
+}
