@@ -14,11 +14,10 @@ namespace Jbaron\FalDatabase\Controller;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 class PublicUrlController
 {
-    private const PARAMETER_FILE_IDENTIFIER = 'id';
+    const PARAMETER_FILE_IDENTIFIER = 'id';
 
     /**
      * @var ResourceFactory

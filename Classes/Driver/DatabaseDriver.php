@@ -22,28 +22,28 @@ use TYPO3\CMS\Core\Utility\PathUtility;
 
 class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 {
-    public const DRIVER_KEY = 'Jbaron.FalDatabase';
+    const DRIVER_KEY = 'Jbaron.FalDatabase';
 
-    private const ROOT_FOLDER_ID = '/';
-    private const DEFAULT_FOLDER_ID = '/user_upload/';
+    const ROOT_FOLDER_ID = '/';
+    const DEFAULT_FOLDER_ID = '/user_upload/';
 
-    private const TABLENAME = 'tx_jbaron_faldatabase_entry';
+    const TABLENAME = 'tx_jbaron_faldatabase_entry';
 
-    private const COLUMNNAME_ENTRY_ID = 'entry_id';
-    private const COLUMNNAME_STORAGE = 'storage';
-    private const COLUMNNAME_DATA = 'data';
+    const COLUMNNAME_ENTRY_ID = 'entry_id';
+    const COLUMNNAME_STORAGE = 'storage';
+    const COLUMNNAME_DATA = 'data';
 
-    private const COLUMNNAMES = [
+    const COLUMNNAMES = [
         self::COLUMNNAME_ENTRY_ID,
         self::COLUMNNAME_STORAGE,
         self::COLUMNNAME_DATA,
     ];
 
-    private const COLUMNTYPE_ENTRY_ID = Type::STRING;
-    private const COLUMNTYPE_STORAGE = Type::INTEGER;
-    private const COLUMNTYPE_DATA = Type::BLOB;
+    const COLUMNTYPE_ENTRY_ID = Type::STRING;
+    const COLUMNTYPE_STORAGE = Type::INTEGER;
+    const COLUMNTYPE_DATA = Type::BLOB;
 
-    private const COLUMNTYPES = [
+    const COLUMNTYPES = [
         self::COLUMNTYPE_ENTRY_ID,
         self::COLUMNTYPE_STORAGE,
         self::COLUMNTYPE_DATA,
@@ -124,6 +124,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         );
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     * @throws FolderDoesNotExistException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function createFolder($newFolderName, $parentFolderIdentifier = '', $recursive = false): string
     {
         if ('' === $parentFolderIdentifier) {
@@ -202,6 +209,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $currentFolderPath;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     * @throws FolderDoesNotExistException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function renameFolder($folderIdentifier, $newName): array
     {
         $targetFolderIdentifier = \rtrim(\dirname($folderIdentifier), '/') . '/';
@@ -209,6 +223,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $this->moveFolderWithinStorage($folderIdentifier, $targetFolderIdentifier, $newName);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FolderDoesNotExistException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function deleteFolder($folderIdentifier, $deleteRecursively = false): bool
     {
         if (!$this->folderExists($folderIdentifier)) {
@@ -245,12 +265,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
 
         return 1 === $this->databaseConnection->count(
-            '*',
-            self::TABLENAME,
-            [
-                self::COLUMNNAME_ENTRY_ID => $fileIdentifier,
-            ]
-        );
+                '*',
+                self::TABLENAME,
+                [
+                    self::COLUMNNAME_ENTRY_ID => $fileIdentifier,
+                ]
+            );
     }
 
     public function folderExists($folderIdentifier): bool
@@ -260,12 +280,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
 
         return 1 === $this->databaseConnection->count(
-            '*',
-            self::TABLENAME,
-            [
-                self::COLUMNNAME_ENTRY_ID => $folderIdentifier,
-            ]
-        );
+                '*',
+                self::TABLENAME,
+                [
+                    self::COLUMNNAME_ENTRY_ID => $folderIdentifier,
+                ]
+            );
     }
 
     public function isFolderEmpty($folderIdentifier): bool
@@ -279,6 +299,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return 0 === $numberFolderEntriesExcludingSelf;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     * @throws FolderDoesNotExistException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function addFile($localFilePath, $targetFolderIdentifier, $newFileName = '', $removeOriginal = true): string
     {
         if ('' === $newFileName) {
@@ -355,6 +382,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $newFileId;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function createFile($fileName, $parentFolderIdentifier): string
     {
         $this->databaseConnection->beginTransaction();
@@ -397,6 +430,14 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         );
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     * @throws FolderDoesNotExistException
+     * @throws ResourceDoesNotExistException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function copyFileWithinStorage($fileIdentifier, $targetFolderIdentifier, $fileName): string
     {
         $this->databaseConnection->beginTransaction();
@@ -450,6 +491,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         );
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function renameFile($fileIdentifier, $newFileName): string
     {
         $newFileIdentifier = \rtrim(\dirname($fileIdentifier), '/') . '/' . $this->sanitizeFileName($newFileName);
@@ -493,6 +540,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $newFileIdentifier;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function replaceFile($fileIdentifier, $localFilePath): bool
     {
         $this->databaseConnection->beginTransaction();
@@ -522,6 +575,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return true;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function deleteFile($fileIdentifier): bool
     {
         $this->databaseConnection->beginTransaction();
@@ -537,21 +596,27 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
 
         $numberDeleted = $this->databaseConnection->delete(
-                self::TABLENAME,
-                [
-                    self::COLUMNNAME_ENTRY_ID => $fileIdentifier
-                ],
-                static::getColumnTypes()
-            );
+            self::TABLENAME,
+            [
+                self::COLUMNNAME_ENTRY_ID => $fileIdentifier
+            ],
+            static::getColumnTypes()
+        );
 
         if (1 === $numberDeleted) {
             $this->databaseConnection->commit();
             return true;
         } else {
             $this->databaseConnection->rollBack();
+            return false;
         }
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     */
     public function hash($fileIdentifier, $hashAlgorithm)
     {
         if (!\in_array($hashAlgorithm, \hash_algos(), true)) {
@@ -568,6 +633,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return \hash($hashAlgorithm, $this->getFileContents($fileIdentifier));
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function moveFileWithinStorage($fileIdentifier, $targetFolderIdentifier, $newFileName)
     {
         $newFileIdentifier = $targetFolderIdentifier . $this->sanitizeFileName($newFileName, 'UTF-8');
@@ -577,6 +648,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $fileIdentifier;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     * @throws FolderDoesNotExistException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function moveFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName)
     {
         $this->databaseConnection->beginTransaction();
@@ -651,6 +729,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $identifierMap;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     * @throws FolderDoesNotExistException
+     * @throws \Doctrine\DBAL\ConnectionException
+     */
     public function copyFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName)
     {
         $this->databaseConnection->beginTransaction();
@@ -715,6 +800,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return true;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     */
     public function getFileContents($fileIdentifier)
     {
         if (!$this->fileExists($fileIdentifier)) {
@@ -742,6 +832,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $result;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     */
     public function setFileContents($fileIdentifier, $contents)
     {
         if (!$this->fileExists($fileIdentifier)) {
@@ -798,6 +893,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $numberEntries > 0;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     */
     public function getFileForLocalProcessing($fileIdentifier, $writable = true): string
     {
         $fileContents = $this->getFileContents($fileIdentifier);
@@ -824,6 +924,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         ];
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FileOperationErrorException
+     */
     public function dumpFileContents($identifier)
     {
         echo $this->getFileContents($identifier);
@@ -834,6 +939,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return GeneralUtility::isFirstPartOfStr($identifier, $folderIdentifier);
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws ResourceDoesNotExistException
+     */
     public function getFileInfoByIdentifier($fileIdentifier, array $propertiesToExtract = []): array
     {
         $fileInfo = $this->extractFileInformation($fileIdentifier, $propertiesToExtract);
@@ -866,6 +976,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $folderIdentifier . $this->sanitizeFileName($fileName, 'UTF-8');
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FolderDoesNotExistException
+     */
     public function getFilesInFolder(
         $folderIdentifier,
         $start = 0,
@@ -894,7 +1009,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                 return $this->isFileIdentifier($entry);
             }
         );
-        $this->logger->debug('Only file entries in folder.', ['files' => $fileFolderEntries]);
+        $this->logger->debug(
+            'Only file entries in folder.',
+            [
+                'folder' => $folderIdentifier,
+                'files' => $fileFolderEntries,
+            ]
+        );
 
         return $fileFolderEntries;
     }
@@ -904,6 +1025,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $folderIdentifier . $this->sanitizeFileName($folderName, 'UTF-8');
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FolderDoesNotExistException
+     */
     public function getFoldersInFolder(
         $folderIdentifier,
         $start = 0,
@@ -932,11 +1058,22 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                 return $this->isFolderIdentifier($entry);
             }
         );
-        $this->logger->debug('Only folder entries in folder.', ['folders' => $folderFolderEntries]);
+        $this->logger->debug(
+            'Only folder entries in folder.',
+            [
+                'folder' => $folderIdentifier,
+                'folders' => $folderFolderEntries,
+            ]
+        );
 
         return $folderFolderEntries;
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FolderDoesNotExistException
+     */
     public function countFilesInFolder(
         $folderIdentifier,
         $recursive = false,
@@ -953,6 +1090,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         );
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FolderDoesNotExistException
+     */
     public function countFoldersInFolder(
         $folderIdentifier,
         $recursive = false,
@@ -969,7 +1111,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         );
     }
 
-    private function createRootFolder(): void
+    private function createRootFolder()
     {
         $this->databaseConnection->insert(
             self::TABLENAME,
@@ -982,6 +1124,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         );
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws ResourceDoesNotExistException
+     */
     private function getEntryRow(string $entryIdentifier): array
     {
         $result = $this->databaseConnection->select(
@@ -1018,7 +1165,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return static::$columnTypes;
     }
 
-    private function getBlobDataFromLocalFile(string $localFilePath): ?string
+    private function getBlobDataFromLocalFile(string $localFilePath)
     {
         if (!\is_readable($localFilePath)) {
             return null;
@@ -1096,6 +1243,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
     }
 
+    /**
+     * {@inheritDoc}
+     *
+     * @throws FolderDoesNotExistException
+     */
     private function getFolderEntries(
         $folderIdentifier,
         $start = 0,
@@ -1133,16 +1285,42 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $executedStatement = $queryBuilder->execute();
         while (false !== ($entryId = $executedStatement->fetchColumn(0))) {
             $identifierPartAfterFolderId = \rtrim(\substr($entryId, \strlen($folderIdentifier)), '/');
+            $this->logger->debug(
+                'Got entry',
+                [
+                    'id' => $entryId,
+                    'folderId' => $folderIdentifier,
+                    'partAfterFolderId' => $identifierPartAfterFolderId,
+                ]
+            );
             // Skip entries which are in subfolders if entries should not be fetched recursively
             if (!$recursive && false !== \strpos($identifierPartAfterFolderId, '/')) {
+                $this->logger->debug('Not fetching recursively, and entry is no direct child - skipping');
                 continue;
             }
 
             $entryFolderIdentifier = \rtrim(\dirname($entryId)) . '/';
             $entryName = \trim(\basename($entryId), '/');
-
             foreach ($nameFilterCallbacks as $nameFilterCallback) {
+                $this->logger->debug(
+                    'Checking name filter',
+                    [
+                        'filter' => $nameFilterCallback,
+                        'entryId' => $entryId,
+                        'folderId' => $entryFolderIdentifier,
+                        'name' => $entryName,
+                    ]
+                );
                 if (-1 === $nameFilterCallback($entryName, $entryId, $entryFolderIdentifier, [], $this)) {
+                    $this->logger->debug(
+                        'Filtering entry out.',
+                        [
+                            'filter' => $nameFilterCallback,
+                            'entryId' => $entryId,
+                            'folderId' => $entryFolderIdentifier,
+                            'name' => $entryName,
+                        ]
+                    );
                     continue 2;
                 }
             }
