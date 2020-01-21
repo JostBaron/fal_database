@@ -35,7 +35,7 @@ class MigrateBetweenStoragesCommand extends Command
     protected function configure()
     {
         $this->setDescription(
-            'Migrate folders between storages.'
+            'Migrate folders to database storage.'
         );
 
         $this->addArgument(
@@ -82,7 +82,7 @@ class MigrateBetweenStoragesCommand extends Command
         $objectManager = GeneralUtility::makeInstance(ObjectManager::class);
         $this->migrationService = $objectManager->get(MigrationService::class);
 
-        $errorMessages = $this->migrationService->migrateFolderToDifferentStorage(
+        $errorMessages = $this->migrationService->migrateFolderToDatabaseStorage(
             (int)$input->getArgument(self::ARGUMENT_NAME_STORAGEFROM),
             (int)$input->getArgument(self::ARGUMENT_NAME_STORAGETO),
             $input->getOption(self::OPTION_NAME_SOURCEFOLDER_IDENTIFIER),
