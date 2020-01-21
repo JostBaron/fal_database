@@ -1284,7 +1284,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $entries = [];
         $executedStatement = $queryBuilder->execute();
         while (false !== ($entryId = $executedStatement->fetchColumn(0))) {
-            $identifierPartAfterFolderId = \rtrim(\substr($entryId, \strlen($folderIdentifier)), '/');
+            $identifierPartAfterFolderId = \substr($entryId, \strlen($folderIdentifier));
             $this->logger->debug(
                 'Got entry',
                 [
@@ -1293,8 +1293,10 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                     'partAfterFolderId' => $identifierPartAfterFolderId,
                 ]
             );
+
             // Skip entries which are in subfolders if entries should not be fetched recursively
-            if (!$recursive && false !== \strpos($identifierPartAfterFolderId, '/')) {
+            $isDirectChildOfFolder = false === \strpos(\rtrim($identifierPartAfterFolderId, '/'), '/');
+            if (!$recursive && !$isDirectChildOfFolder) {
                 $this->logger->debug('Not fetching recursively, and entry is no direct child - skipping');
                 continue;
             }
