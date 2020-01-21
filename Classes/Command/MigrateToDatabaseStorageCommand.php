@@ -19,7 +19,7 @@ use TYPO3\CMS\Extbase\Object\ObjectManagerInterface;
  *
  * @package Jbaron\FalDatabase\Command
  */
-class MigrateBetweenStoragesCommand extends Command
+class MigrateToDatabaseStorageCommand extends Command
 {
     const ARGUMENT_NAME_STORAGEFROM = 'storage-id-from';
     const ARGUMENT_NAME_STORAGETO = 'storage-id-to';

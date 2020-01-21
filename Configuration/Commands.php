@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-use Jbaron\FalDatabase\Command\MigrateBetweenStoragesCommand;
+use Jbaron\FalDatabase\Command\MigrateToDatabaseStorageCommand;
 
 return [
-    'faldatabase:migratestorage' => [
-        'class' => MigrateBetweenStoragesCommand::class,
+    'faldatabase:migrate-to-database-storage' => [
+        'class' => MigrateToDatabaseStorageCommand::class,
     ]
 ];
