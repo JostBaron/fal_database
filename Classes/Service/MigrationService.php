@@ -8,11 +8,14 @@ use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Log\LogManager;
+use TYPO3\CMS\Core\Resource\Driver\DriverInterface;
+use TYPO3\CMS\Core\Resource\Driver\LocalDriver;
 use TYPO3\CMS\Core\Resource\Exception\ExistingTargetFolderException;
 use TYPO3\CMS\Core\Resource\Exception\InsufficientFolderAccessPermissionsException;
 use TYPO3\CMS\Core\Resource\Exception\InsufficientFolderWritePermissionsException;
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
+use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Object\ObjectManager;
@@ -124,6 +127,8 @@ class MigrationService implements SingletonInterface
             return $errorMessages;
         }
 
+        $sourceDriver = $this->getSourceStorageDriverInstance($sourceStorage);
+
         $this->logger->info(
             'Starting migration.',
             [
@@ -148,24 +153,6 @@ class MigrationService implements SingletonInterface
         }
 
         $this->databaseConnection->commit();
-
-        $objectManager = GeneralUtility::makeInstance(ObjectManager::class);
-        /** @var ResourceFactory $resourceFactory */
-        $resourceFactory = $objectManager->get(ResourceFactory::class);
-        $storageRow = $this->databaseConnection->select(
-            ['*'],
-            'sys_file_storage',
-            [
-                'uid' => $sourceFolder->getStorage()->getUid(),
-            ]
-        )->fetch();
-
-        $sourceDriver = $resourceFactory->getDriverObject(
-            $storageRow['driver'],
-            $resourceFactory->convertFlexFormDataToConfigurationArray($storageRow['configuration'])
-        );
-        $sourceDriver->processConfiguration();
-        $sourceDriver->initialize();
 
         $this->logger->info('Deleting files from source storage', ['oldFileIds' => $this->filesToDeleteInDriver]);
         foreach ($this->filesToDeleteInDriver as $fileId) {
@@ -346,5 +333,63 @@ class MigrationService implements SingletonInterface
     private function normalizeFolderIdentifier(string $folderIdentifier): string
     {
         return \rtrim($folderIdentifier, '/') . '/';
+    }
+
+    private function getSourceStorageDriverInstance(ResourceStorage $sourceStorage): DriverInterface
+    {
+        $objectManager = GeneralUtility::makeInstance(ObjectManager::class);
+        /** @var ResourceFactory $resourceFactory */
+        $resourceFactory = $objectManager->get(ResourceFactory::class);
+        $storageRow = $this->databaseConnection->select(
+            [
+                'driver',
+                'configuration',
+            ],
+            'sys_file_storage',
+            [
+                'uid' => $sourceStorage->getUid(),
+            ]
+        )->fetch();
+
+        if (false === $storageRow) {
+            throw new \RuntimeException(
+                \sprintf(
+                    'Could not retrieve source storage data for storage %d from database.',
+                    $sourceStorage->getUid()
+                ),
+                1579621183
+            );
+        }
+
+        $sourceDriverKey = $storageRow['driver'];
+        $sourceDriverConfiguration = $resourceFactory->convertFlexFormDataToConfigurationArray(
+            $storageRow['configuration']
+        );
+
+        switch ($sourceDriverKey) {
+            case 'Local':
+                if (!\array_key_exists('pathType', $sourceDriverConfiguration)
+                    || 'absolute' !== $sourceDriverConfiguration['pathType']) {
+                    throw new \RuntimeException(
+                        \sprintf(
+                            'Storage with ID %d uses the "Local" driver, but does not have an absolute '
+                            . 'path configured as base path. This is necessary in order to remove the moved files '
+                            . 'from the file system after moving.',
+                            $sourceStorage->getUid()
+                        ),
+                        1579621628
+                    );
+                }
+            // Add checks for other drivers here later.
+        }
+
+        $sourceDriver = $resourceFactory->getDriverObject(
+            $sourceDriverKey,
+            $sourceDriverConfiguration
+        );
+        $sourceDriver->processConfiguration();
+        $sourceDriver->initialize();
+
+        return $sourceDriver;
     }
 }
