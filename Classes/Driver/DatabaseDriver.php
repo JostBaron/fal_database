@@ -52,6 +52,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     private static $columnTypes = null;
 
     /**
+     * @var string[]
+     */
+    private $tempfileNames;
+
+    /**
      * @var Connection
      */
     protected $databaseConnection;
@@ -74,6 +79,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $this->capabilities = ResourceStorage::CAPABILITY_BROWSABLE
             | ResourceStorage::CAPABILITY_PUBLIC
             | ResourceStorage::CAPABILITY_WRITABLE;
+    }
+
+    public function __destruct()
+    {
+        foreach ($this->tempfileNames as $tempfileName) {
+            @unlink($tempfileName);
+        }
     }
 
     public function isCaseSensitiveFileSystem()
@@ -901,7 +913,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     public function getFileForLocalProcessing($fileIdentifier, $writable = true): string
     {
         $fileContents = $this->getFileContents($fileIdentifier);
-        $temporaryFileName = \tempnam(\sys_get_temp_dir(), 'typo3_fal_database');
+        $temporaryFileName = $this->getTemporaryFileName();
         \file_put_contents($temporaryFileName, $fileContents);
 
         $this->logger->debug(
@@ -1207,6 +1219,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * @param string $property
      *
      * @return bool|int|string
+     *
+     * @throws FileOperationErrorException
      */
     private function getSpecificFileInformation(array $fileRow, string $property)
     {
@@ -1218,8 +1232,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             case 'extension':
                 return PathUtility::pathinfo($fileRow[self::COLUMNNAME_ENTRY_ID], \PATHINFO_EXTENSION);
             case 'mimetype':
-                $localFilePath = \tempnam(\sys_get_temp_dir(), 'typo3_fal_database_fileinfo');
-                \file_put_contents($localFilePath, $fileRow[self::COLUMNNAME_DATA]);
+                $localFilePath = $this->getFileForLocalProcessing($fileRow[self::COLUMNNAME_ENTRY_ID]);
                 /** @var FileInfo $fileInfo */
                 $fileInfo = GeneralUtility::makeInstance(FileInfo::class, $localFilePath);
                 $mimeType = (string)$fileInfo->getMimeType();
@@ -1369,5 +1382,27 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
 
         return $expression;
+    }
+
+    /**
+     * Creates a new temporary file and returns the path to it. Adds it to the list of files to be
+     * deleted when the driver is destructed.
+     *
+     * @return string
+     *
+     * @throws FileOperationErrorException
+     */
+    private function getTemporaryFileName(): string
+    {
+        $temporaryFileName = \tempnam(\sys_get_temp_dir(), 'typo3_fal_database');
+        if (false === $temporaryFileName) {
+            throw new FileOperationErrorException(
+                'Could not create temporary file in database FAL driver.',
+                1580127165
+            );
+        }
+        $this->tempfileNames[] = $temporaryFileName;
+
+        return $temporaryFileName;
     }
 }
