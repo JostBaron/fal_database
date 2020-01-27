@@ -54,7 +54,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     /**
      * @var string[]
      */
-    private $tempfileNames;
+    private $tempfileNames = [];
 
     /**
      * @var Connection
