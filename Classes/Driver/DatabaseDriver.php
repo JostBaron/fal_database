@@ -149,6 +149,15 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             $parentFolderIdentifier = $this->getRootLevelFolder();
         }
 
+        $this->logger->debug(
+            'Creating folder',
+            [
+                'folderName'    => $newFolderName,
+                'parentFolderIdentifier' => $parentFolderIdentifier,
+                'recursive' => $recursive,
+            ]
+        );
+
         if (!$this->folderExists($parentFolderIdentifier)) {
             throw new FolderDoesNotExistException(
                 \sprintf('Parent folder with ID "%s" does not exist', $parentFolderIdentifier),
@@ -913,7 +922,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     public function getFileForLocalProcessing($fileIdentifier, $writable = true): string
     {
         $fileContents = $this->getFileContents($fileIdentifier);
-        $temporaryFileName = $this->getTemporaryFileName();
+        $temporaryFileName = $this->getTemporaryFileName($fileIdentifier);
         \file_put_contents($temporaryFileName, $fileContents);
 
         $this->logger->debug(
@@ -1195,6 +1204,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * @return array
      *
      * @throws ResourceDoesNotExistException
+     * @throws FileOperationErrorException
      */
     private function extractFileInformation(string $identifier, array $propertiesToExtract = [])
     {
@@ -1209,6 +1219,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         foreach ($propertiesToExtract as $property) {
             $fileInformation[$property] = $this->getSpecificFileInformation($fileRow, $property);
         }
+        $this->logger->debug(
+            'Got file information',
+            [
+                'entryId' => $fileRow[self::COLUMNNAME_ENTRY_ID],
+                'fileInformation' => $fileInformation,
+            ]
+        );
         return $fileInformation;
     }
 
@@ -1388,11 +1405,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * Creates a new temporary file and returns the path to it. Adds it to the list of files to be
      * deleted when the driver is destructed.
      *
+     * @param string $fileIdentifier
+     *
      * @return string
      *
      * @throws FileOperationErrorException
      */
-    private function getTemporaryFileName(): string
+    private function getTemporaryFileName(string $fileIdentifier): string
     {
         $temporaryFileName = \tempnam(\sys_get_temp_dir(), 'typo3_fal_database');
         if (false === $temporaryFileName) {
@@ -1401,8 +1420,27 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                 1580127165
             );
         }
-        $this->tempfileNames[] = $temporaryFileName;
 
-        return $temporaryFileName;
+        // Add file extension, otherwise the file will not be processed because the extension
+        // is not in the list of whitelisted extensions.
+        $newTemporaryFilename = $temporaryFileName . '.' . \pathinfo($fileIdentifier, \PATHINFO_EXTENSION);
+        if (\file_exists($newTemporaryFilename)) {
+            throw new FileOperationErrorException(
+                'Could not rename temporary file in database FAL driver to contain the correct extension, '
+                    . 'because a file with the correct extension already exists.',
+                1580145965
+            );
+        }
+        $renameResult = \rename($temporaryFileName, $newTemporaryFilename);
+        if (false === $renameResult) {
+            throw new FileOperationErrorException(
+                'Could not rename temporary file in database FAL driver to contain the correct extension.',
+                1580145901
+            );
+        }
+
+        $this->tempfileNames[] = $newTemporaryFilename;
+
+        return $newTemporaryFilename;
     }
 }
