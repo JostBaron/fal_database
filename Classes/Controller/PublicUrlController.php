@@ -42,6 +42,10 @@ class PublicUrlController
 
         $file = $this->resourceFactory->getFileObjectFromCombinedIdentifier($combinedFileIdentifier);
 
+        if (null === $file) {
+            return $response->withStatus(404);
+        }
+
         $response = $response
             ->withStatus(200)
             ->withHeader('Content-Type', $file->getMimeType())
