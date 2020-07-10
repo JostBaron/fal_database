@@ -128,7 +128,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             '%4$s://%1$s/index.php?eID=fal_database_download&id=%2$s%%3A%3$s',
             $_SERVER['SERVER_NAME'],
             $this->storageUid,
-            $identifier,
+            \rawurlencode($identifier),
             !empty($_SERVER['HTTPS']) ? 'https' : 'http'
         );
     }
