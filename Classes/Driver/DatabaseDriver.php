@@ -7,6 +7,8 @@ namespace Jbaron\FalDatabase\Driver;
 use Doctrine\DBAL\Query\Expression\CompositeExpression;
 use Doctrine\DBAL\Types\Type;
 use Psr\Log\LoggerInterface;
+use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Database\Query\QueryBuilder;
@@ -23,6 +25,8 @@ use TYPO3\CMS\Core\Utility\PathUtility;
 class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 {
     const DRIVER_KEY = 'Jbaron.FalDatabase';
+
+    const CACHE_EXISTENCE_NAME = 'tx_jbaron_faldatabase_existencecache';
 
     const ROOT_FOLDER_ID = '/';
     const DEFAULT_FOLDER_ID = '/user_upload/';
@@ -86,6 +90,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         foreach ($this->tempfileNames as $tempfileName) {
             @unlink($tempfileName);
         }
+    }
+
+    private function getExistenceCache(): FrontendInterface
+    {
+        return GeneralUtility::makeInstance(CacheManager::class)->getCache(self::CACHE_EXISTENCE_NAME);
     }
 
     public function isCaseSensitiveFileSystem()
@@ -282,13 +291,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             return false;
         }
 
-        return 1 === $this->getDatabaseConnection()->count(
-                '*',
-                self::TABLENAME,
-                [
-                    self::COLUMNNAME_ENTRY_ID => $fileIdentifier,
-                ]
-            );
+        return $this->doesItemWithIdentifierExist($fileIdentifier);
     }
 
     public function folderExists($folderIdentifier): bool
@@ -296,14 +299,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if (!$this->isFolderIdentifier($folderIdentifier)) {
             return false;
         }
-
-        return 1 === $this->getDatabaseConnection()->count(
-                '*',
-                self::TABLENAME,
-                [
-                    self::COLUMNNAME_ENTRY_ID => $folderIdentifier,
-                ]
-            );
+        return $this->doesItemWithIdentifierExist($folderIdentifier);
     }
 
     public function isFolderEmpty($folderIdentifier): bool
@@ -884,31 +880,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     public function fileExistsInFolder($fileName, $folderIdentifier): bool
     {
         $fileIdentifier = $folderIdentifier . $this->sanitizeFileName($fileName, 'UTF-8');
-
-        $numberEntries = $this->getDatabaseConnection()->count(
-            '*',
-            self::TABLENAME,
-            [
-                self::COLUMNNAME_ENTRY_ID   => $fileIdentifier,
-            ]
-        );
-
-        return $numberEntries > 0;
+        return $this->doesItemWithIdentifierExist($fileIdentifier);
     }
 
     public function folderExistsInFolder($folderName, $folderIdentifier): bool
     {
         $queriedFolderIdentifier = $folderIdentifier . $this->sanitizeFileName($folderName, 'UTF-8');
-
-        $numberEntries = $this->getDatabaseConnection()->count(
-            '*',
-            self::TABLENAME,
-            [
-                self::COLUMNNAME_ENTRY_ID     => $queriedFolderIdentifier,
-            ]
-        );
-
-        return $numberEntries > 0;
+        return $this->doesItemWithIdentifierExist($queriedFolderIdentifier);
     }
 
     /**
@@ -1127,6 +1105,27 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                 $folderNameFilterCallbacks
             )
         );
+    }
+
+    private function doesItemWithIdentifierExist(string $identifier): bool
+    {
+        $cacheKey = \hash('sha256', $identifier);
+
+        if ($this->getExistenceCache()->has($cacheKey)) {
+            return $this->getExistenceCache()->get($cacheKey);
+        }
+
+        $numberEntries = $this->getDatabaseConnection()->count(
+            '*',
+            self::TABLENAME,
+            [
+                self::COLUMNNAME_ENTRY_ID     => $identifier,
+            ]
+        );
+
+        $itemExists = $numberEntries > 0;
+        $this->getExistenceCache()->set($cacheKey, $itemExists);
+        return $itemExists;
     }
 
     private function createRootFolder()
