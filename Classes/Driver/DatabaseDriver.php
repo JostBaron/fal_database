@@ -151,6 +151,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function createFolder($newFolderName, $parentFolderIdentifier = '', $recursive = false): string
     {
+        $this->getExistenceCache()->flush();
+
         if ('' === $parentFolderIdentifier) {
             $parentFolderIdentifier = $this->getRootLevelFolder();
         }
@@ -245,6 +247,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function renameFolder($folderIdentifier, $newName): array
     {
+        $this->getExistenceCache()->flush();
+
         $targetFolderIdentifier = \rtrim(\dirname($folderIdentifier), '/') . '/';
 
         return $this->moveFolderWithinStorage($folderIdentifier, $targetFolderIdentifier, $newName);
@@ -258,6 +262,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function deleteFolder($folderIdentifier, $deleteRecursively = false): bool
     {
+        $this->getExistenceCache()->flush();
+
         if (!$this->folderExists($folderIdentifier)) {
             throw new FolderDoesNotExistException(
                 \sprintf('Folder with identifier "%s" does not exist.', $folderIdentifier),
@@ -322,6 +328,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function addFile($localFilePath, $targetFolderIdentifier, $newFileName = '', $removeOriginal = true): string
     {
+        $this->getExistenceCache()->flush();
+
         if ('' === $newFileName) {
             $newFileName = \basename($localFilePath);
         }
@@ -404,6 +412,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function createFile($fileName, $parentFolderIdentifier): string
     {
+        $this->getExistenceCache()->flush();
+
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($parentFolderIdentifier)) {
             throw new FileOperationErrorException(
@@ -454,6 +464,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function copyFileWithinStorage($fileIdentifier, $targetFolderIdentifier, $fileName): string
     {
+        $this->getExistenceCache()->flush();
+
         $this->getDatabaseConnection()->beginTransaction();
 
         if (!$this->folderExists($targetFolderIdentifier)) {
@@ -513,6 +525,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function renameFile($fileIdentifier, $newFileName): string
     {
+        $this->getExistenceCache()->flush();
+
         $newFileIdentifier = \rtrim(\dirname($fileIdentifier), '/') . '/' . $this->sanitizeFileName($newFileName);
 
         if ($fileIdentifier === $newFileIdentifier) {
@@ -562,6 +576,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function replaceFile($fileIdentifier, $localFilePath): bool
     {
+        $this->getExistenceCache()->flush();
+
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->fileExists($fileIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
@@ -597,6 +613,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function deleteFile($fileIdentifier): bool
     {
+        $this->getExistenceCache()->flush();
+
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->fileExists($fileIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
@@ -655,6 +673,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function moveFileWithinStorage($fileIdentifier, $targetFolderIdentifier, $newFileName)
     {
+        $this->getExistenceCache()->flush();
+
         $newFileIdentifier = $targetFolderIdentifier . $this->sanitizeFileName($newFileName, 'UTF-8');
 
         $this->renameFile($fileIdentifier, $newFileIdentifier);
@@ -671,6 +691,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function moveFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName)
     {
+        $this->getExistenceCache()->flush();
+
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($sourceFolderIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
@@ -752,6 +774,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function copyFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName)
     {
+        $this->getExistenceCache()->flush();
+
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($sourceFolderIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
