@@ -334,7 +334,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     public function folderExists($folderIdentifier): bool
     {
         if (!$this->isFolderIdentifier($folderIdentifier)) {
-            return false;
+            $folderIdentifier .= '/';
         }
         return $this->doesItemWithIdentifierExist($folderIdentifier);
     }
@@ -1536,7 +1536,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if (\file_exists($newTemporaryFilename)) {
             throw new FileOperationErrorException(
                 'Could not rename temporary file in database FAL driver to contain the correct extension, '
-                    . 'because a file with the correct extension already exists.',
+                . 'because a file with the correct extension already exists.',
                 1580145965
             );
         }
