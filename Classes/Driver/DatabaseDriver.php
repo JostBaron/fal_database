@@ -72,6 +72,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     protected $logger;
 
     /**
+     * Cache in which information about file existence is stored.
+     *
+     * @var FrontendInterface
+     */
+    protected $entryExistenceCache = null;
+
+    /**
      * Indicates whether to use the file existence cache currently. Used to disable
      * cache access during write operations. Should be enabled during read only operations.
      *
@@ -106,7 +113,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     private function getExistenceCache(): FrontendInterface
     {
-        return GeneralUtility::makeInstance(CacheManager::class)->getCache(self::CACHE_EXISTENCE_NAME);
+        if (null === $this->entryExistenceCache) {
+            $this->entryExistenceCache = GeneralUtility::makeInstance(CacheManager::class)
+                ->getCache(self::CACHE_EXISTENCE_NAME);
+        }
+        return $this->entryExistenceCache;
     }
 
     public function isCaseSensitiveFileSystem()
@@ -943,7 +954,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     public function folderExistsInFolder($folderName, $folderIdentifier): bool
     {
-        $queriedFolderIdentifier = $folderIdentifier . $this->sanitizeFileName($folderName, 'UTF-8');
+        $queriedFolderIdentifier = $folderIdentifier . $this->sanitizeFileName($folderName, 'UTF-8') . '/';
         return $this->doesItemWithIdentifierExist($queriedFolderIdentifier);
     }
 
@@ -1167,23 +1178,37 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     private function doesItemWithIdentifierExist(string $identifier): bool
     {
-        $cacheKey = \hash('sha256', $identifier);
+        if ('' === $identifier) {
+            return true;
+        }
+
+        $cacheKey = \hash('sha256', $this->storageUid . ':' . $identifier);
 
         if ($this->getExistenceCache()->has($cacheKey) && $this->isCachingEnabled()) {
             return $this->getExistenceCache()->get($cacheKey);
         }
 
-        $numberEntries = $this->getDatabaseConnection()->count(
-            '*',
-            self::TABLENAME,
-            [
-                self::COLUMNNAME_ENTRY_ID     => $identifier,
-            ]
-        );
+        $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
+        $executedQuery = $queryBuilder
+            ->select(self::COLUMNNAME_ENTRY_ID)
+            ->from(self::TABLENAME)
+            ->where($this->getConditionForAllSubEntries($queryBuilder, $identifier, true))
+            ->execute();
 
-        $itemExists = $numberEntries > 0;
-        $this->getExistenceCache()->set($cacheKey, $itemExists);
-        return $itemExists;
+        $numberReturnedIdentifiers = 0;
+        $searchedForItemExists = false;
+        while (false !== ($entryId = $executedQuery->fetchColumn(0))) {
+            $entryCacheKey = \hash('sha256', $this->storageUid . ':' . $entryId);
+            $this->getExistenceCache()->set($entryCacheKey, true);
+            if ($identifier === $entryId) {
+                $searchedForItemExists = true;
+            }
+            $numberReturnedIdentifiers++;
+        }
+
+        $executedQuery->closeCursor();
+
+        return $searchedForItemExists;
     }
 
     private function enableCaching(): void
@@ -1213,7 +1238,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     private function isCachingEnabled(): bool
     {
-        return 0 >= $this->cacheDisableCount;
+        return $this->cacheDisableCount <= 0;
     }
 
     private function createRootFolder()
