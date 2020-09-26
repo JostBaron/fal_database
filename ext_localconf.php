@@ -20,9 +20,3 @@ $GLOBALS['TYPO3_CONF_VARS']['FE']['eID_include']['fal_database_download']
 if (!\is_array($GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['tx_jbaron_faldatabase_existencecache'])) {
     $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['tx_jbaron_faldatabase_existencecache'] = [];
 }
-
-// Use transient memory cache to make sure the cache is cleared after each request.
-if (!isset($GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['tx_jbaron_faldatabase_existencecache']['backend'])) {
-    $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['tx_jbaron_faldatabase_existencecache']['backend']
-        = \TYPO3\CMS\Core\Cache\Backend\TransientMemoryBackend::class;
-}
