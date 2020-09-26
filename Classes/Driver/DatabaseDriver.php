@@ -72,6 +72,18 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     protected $logger;
 
     /**
+     * Indicates whether to use the file existence cache currently. Used to disable
+     * cache access during write operations. Should be enabled during read only operations.
+     *
+     * This variable counts the number of currently active calls to `disableCaching`, so
+     * those can be nested and each call to `disableCaching` needs a corresponding call to
+     * `enableCaching`.
+     *
+     * @var int
+     */
+    protected $cacheDisableCount = 0;
+
+    /**
      * DatabaseDriver constructor.
      *
      * @param array $configuration
@@ -151,7 +163,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function createFolder($newFolderName, $parentFolderIdentifier = '', $recursive = false): string
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         if ('' === $parentFolderIdentifier) {
             $parentFolderIdentifier = $this->getRootLevelFolder();
@@ -235,6 +247,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
         $this->getDatabaseConnection()->commit();
 
+        $this->enableCaching();
+
         return $currentFolderPath;
     }
 
@@ -247,11 +261,14 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function renameFolder($folderIdentifier, $newName): array
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         $targetFolderIdentifier = \rtrim(\dirname($folderIdentifier), '/') . '/';
+        $result = $this->moveFolderWithinStorage($folderIdentifier, $targetFolderIdentifier, $newName);
 
-        return $this->moveFolderWithinStorage($folderIdentifier, $targetFolderIdentifier, $newName);
+        $this->enableCaching();
+
+        return $result;
     }
 
     /**
@@ -262,7 +279,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function deleteFolder($folderIdentifier, $deleteRecursively = false): bool
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         if (!$this->folderExists($folderIdentifier)) {
             throw new FolderDoesNotExistException(
@@ -277,6 +294,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         if (!$deleteRecursively && !$this->isFolderEmpty($folderIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
+            $this->enableCaching();
             return false;
         }
 
@@ -287,6 +305,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             ->execute();
 
         $this->getDatabaseConnection()->commit();
+
+        $this->enableCaching();
 
         return true;
     }
@@ -328,7 +348,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function addFile($localFilePath, $targetFolderIdentifier, $newFileName = '', $removeOriginal = true): string
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         if ('' === $newFileName) {
             $newFileName = \basename($localFilePath);
@@ -401,6 +421,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         $this->getDatabaseConnection()->commit();
 
+        $this->enableCaching();
+
         return $newFileId;
     }
 
@@ -412,7 +434,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function createFile($fileName, $parentFolderIdentifier): string
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($parentFolderIdentifier)) {
@@ -440,6 +462,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         );
         if (1 === $result) {
             $this->getDatabaseConnection()->commit();
+            $this->enableCaching();
             return $newFileIdentifier;
         }
 
@@ -464,7 +487,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function copyFileWithinStorage($fileIdentifier, $targetFolderIdentifier, $fileName): string
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         $this->getDatabaseConnection()->beginTransaction();
 
@@ -507,6 +530,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         if (1 === $numberInsertedRows) {
             $this->getDatabaseConnection()->commit();
+            $this->enableCaching();
             return $newFileIdentifier;
         }
 
@@ -525,11 +549,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function renameFile($fileIdentifier, $newFileName): string
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         $newFileIdentifier = \rtrim(\dirname($fileIdentifier), '/') . '/' . $this->sanitizeFileName($newFileName);
 
         if ($fileIdentifier === $newFileIdentifier) {
+            $this->enableCaching();
             return $fileIdentifier;
         }
 
@@ -565,6 +590,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
 
         $this->getDatabaseConnection()->commit();
+        $this->enableCaching();
         return $newFileIdentifier;
     }
 
@@ -576,7 +602,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function replaceFile($fileIdentifier, $localFilePath): bool
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->fileExists($fileIdentifier)) {
@@ -602,6 +628,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         );
 
         $this->getDatabaseConnection()->commit();
+        $this->enableCaching();
         return true;
     }
 
@@ -613,7 +640,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function deleteFile($fileIdentifier): bool
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->fileExists($fileIdentifier)) {
@@ -637,9 +664,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         if (1 === $numberDeleted) {
             $this->getDatabaseConnection()->commit();
+            $this->enableCaching();
             return true;
         } else {
             $this->getDatabaseConnection()->rollBack();
+            $this->enableCaching();
             return false;
         }
     }
@@ -673,12 +702,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function moveFileWithinStorage($fileIdentifier, $targetFolderIdentifier, $newFileName)
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         $newFileIdentifier = $targetFolderIdentifier . $this->sanitizeFileName($newFileName, 'UTF-8');
 
         $this->renameFile($fileIdentifier, $newFileIdentifier);
 
+        $this->enableCaching();
         return $fileIdentifier;
     }
 
@@ -691,7 +721,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function moveFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName)
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($sourceFolderIdentifier)) {
@@ -759,8 +789,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             $identifierMap[$entryId] = $newEntryIdentifier;
         }
         $executedQuery->closeCursor();
-
         $this->getDatabaseConnection()->commit();
+
+        $this->enableCaching();
 
         return $identifierMap;
     }
@@ -774,7 +805,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function copyFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName)
     {
-        $this->getExistenceCache()->flush();
+        $this->disableCaching();
 
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($sourceFolderIdentifier)) {
@@ -831,10 +862,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         if (\count($dataToInsert) !== $numberInserted) {
             $this->getDatabaseConnection()->rollBack();
+            $this->enableCaching();
             return false;
         }
 
         $this->getDatabaseConnection()->commit();
+
+        $this->enableCaching();
         return true;
     }
 
@@ -1135,7 +1169,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     {
         $cacheKey = \hash('sha256', $identifier);
 
-        if ($this->getExistenceCache()->has($cacheKey)) {
+        if ($this->getExistenceCache()->has($cacheKey) && $this->isCachingEnabled()) {
             return $this->getExistenceCache()->get($cacheKey);
         }
 
@@ -1150,6 +1184,36 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $itemExists = $numberEntries > 0;
         $this->getExistenceCache()->set($cacheKey, $itemExists);
         return $itemExists;
+    }
+
+    private function enableCaching(): void
+    {
+        if ($this->isCachingEnabled()) {
+            throw new \RuntimeException(
+                'Bug: File existence caching was enabled while not being disabled. This hints to '
+                . 'mismatching calls to "disableCaching" and "enableCaching" in the FAL driver. '
+                . 'Please file a bug report!',
+                1601129497
+            );
+        }
+
+        $this->cacheDisableCount--;
+
+        // If caching has become enabled, flush the cache - it might have become
+        // stale while being disabled.
+        if ($this->isCachingEnabled()) {
+            $this->getExistenceCache()->flush();
+        }
+    }
+
+    private function disableCaching(): void
+    {
+        $this->cacheDisableCount++;
+    }
+
+    private function isCachingEnabled(): bool
+    {
+        return 0 >= $this->cacheDisableCount;
     }
 
     private function createRootFolder()
