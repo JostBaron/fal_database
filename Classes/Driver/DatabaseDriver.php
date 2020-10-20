@@ -144,12 +144,21 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     public function getPublicUrl($identifier)
     {
+        $isHttps = !empty($_SERVER['HTTPS']);
+        $portString = ':' . $_SERVER['SERVER_PORT'];
+        if ($isHttps && '443' === $_SERVER['SERVER_PORT']) {
+            $portString = '';
+        } elseif (!$isHttps && '80' === $_SERVER['SERVER_PORT']) {
+            $portString = '';
+        }
+
         return \sprintf(
-            '%4$s://%1$s/index.php?eID=fal_database_download&id=%2$s%%3A%3$s',
+            '%4$s://%1$s%5$s/index.php?eID=fal_database_download&id=%2$s%%3A%3$s',
             $_SERVER['SERVER_NAME'],
             $this->storageUid,
             \rawurlencode($identifier),
-            !empty($_SERVER['HTTPS']) ? 'https' : 'http'
+            $isHttps ? 'https' : 'http',
+            $portString
         );
     }
 
