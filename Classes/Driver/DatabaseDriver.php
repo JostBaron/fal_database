@@ -144,21 +144,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     public function getPublicUrl($identifier)
     {
-        $isHttps = !empty($_SERVER['HTTPS']);
-        $portString = ':' . $_SERVER['SERVER_PORT'];
-        if ($isHttps && '443' === $_SERVER['SERVER_PORT']) {
-            $portString = '';
-        } elseif (!$isHttps && '80' === $_SERVER['SERVER_PORT']) {
-            $portString = '';
-        }
-
         return \sprintf(
-            '%4$s://%1$s%5$s/index.php?eID=fal_database_download&id=%2$s%%3A%3$s',
-            $_SERVER['SERVER_NAME'],
-            $this->storageUid,
-            \rawurlencode($identifier),
-            $isHttps ? 'https' : 'http',
-            $portString
+            '%1$sindex.php?eID=fal_database_download&id=%2$s%%3A%3$s',
+            GeneralUtility::getIndpEnv('TYPO3_SITE_URL'),
+            \rawurlencode($this->storageUid),
+            \rawurlencode($identifier)
         );
     }
 
