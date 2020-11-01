@@ -1165,6 +1165,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             return true;
         }
 
+        $identifier = '/' . \ltrim($identifier, '/');
+
         if ($this->hasExistenceCacheEntry($identifier)) {
             return $this->getExistenceCacheEntry($identifier);
         }
