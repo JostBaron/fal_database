@@ -147,7 +147,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return \sprintf(
             '%1$sindex.php?eID=fal_database_download&id=%2$s%%3A%3$s',
             GeneralUtility::getIndpEnv('TYPO3_SITE_URL'),
-            \rawurlencode($this->storageUid),
+            \rawurlencode((string)$this->storageUid),
             \rawurlencode($identifier)
         );
     }
