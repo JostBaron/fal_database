@@ -6,7 +6,6 @@ CREATE TABLE tx_jbaron_faldatabase_entry (
     data longblob,
 
     PRIMARY KEY (entry_id),
-    FOREIGN KEY storage(storage) REFERENCES sys_file_storage(uid) ON DELETE CASCADE,
     UNIQUE KEY uniqueEntriesInFolder(storage, entry_id(255)),
 );
 
