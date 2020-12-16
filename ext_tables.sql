@@ -6,6 +6,6 @@ CREATE TABLE tx_jbaron_faldatabase_entry (
     data longblob,
 
     PRIMARY KEY (entry_id),
-    UNIQUE KEY uniqueEntriesInFolder(storage, entry_id(255)),
+    UNIQUE KEY uniqueEntriesInFolder(storage, entry_id(240)),
 );
 
