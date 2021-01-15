@@ -1,3 +1,4 @@
 .idea/
 /vendor/
 /typo3/
+/composer.lock
