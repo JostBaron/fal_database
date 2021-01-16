@@ -14,9 +14,6 @@ $driverRegistry->registerDriverClass(
     'FILE:EXT:fal_database/Configuration/FlexForm/DriverFlexForm.xml'
 );
 
-$GLOBALS['TYPO3_CONF_VARS']['FE']['eID_include']['fal_database_download']
-    = \Jbaron\FalDatabase\Controller\PublicUrlController::class . '::dumpFile';
-
 if (!\is_array($GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['tx_jbaron_faldatabase_existencecache'])) {
     $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['tx_jbaron_faldatabase_existencecache'] = [];
 }
