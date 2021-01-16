@@ -11,6 +11,7 @@ use Psr\Http\Server\MiddlewareInterface;
 use Psr\Http\Server\RequestHandlerInterface;
 use TYPO3\CMS\Core\Resource\FileInterface;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
+use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 class FileDeliveryMiddleware implements MiddlewareInterface
 {
@@ -25,14 +26,13 @@ class FileDeliveryMiddleware implements MiddlewareInterface
     private $resourceFactory;
 
     /**
-     * FileDeliveryMiddleware constructor.
      * @param ResponseFactoryInterface $responseFactory
      * @param ResourceFactory $resourceFactory
      */
-    public function __construct(ResponseFactoryInterface $responseFactory, ResourceFactory $resourceFactory)
+    public function __construct()
     {
-        $this->responseFactory = $responseFactory;
-        $this->resourceFactory = $resourceFactory;
+        $this->responseFactory = GeneralUtility::makeInstance(ResponseFactoryInterface::class);
+        $this->resourceFactory = ResourceFactory::getInstance();
     }
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
