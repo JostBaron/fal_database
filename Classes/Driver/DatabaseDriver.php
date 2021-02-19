@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Jbaron\FalDatabase\Driver;
 
+use Doctrine\DBAL\Driver\ResultStatement;
 use Doctrine\DBAL\Query\Expression\CompositeExpression;
-use Doctrine\DBAL\Types\Type;
+use Doctrine\DBAL\Types\Types;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
@@ -24,63 +25,58 @@ use TYPO3\CMS\Core\Utility\PathUtility;
 
 class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 {
-    const DRIVER_KEY = 'Jbaron.FalDatabase';
+    public const DRIVER_KEY = 'Jbaron.FalDatabase';
 
-    const CACHE_EXISTENCE_NAME = 'tx_jbaron_faldatabase_existencecache';
+    public const CACHE_EXISTENCE_NAME = 'tx_jbaron_faldatabase_existencecache';
 
-    const ROOT_FOLDER_ID = '/';
-    const DEFAULT_FOLDER_ID = '/user_upload/';
+    private const ROOT_FOLDER_ID = '/';
+    private const DEFAULT_FOLDER_ID = '/user_upload/';
 
-    const TABLENAME = 'tx_jbaron_faldatabase_entry';
+    private const TABLENAME = 'tx_jbaron_faldatabase_entry';
 
-    const COLUMNNAME_ENTRY_ID = 'entry_id';
-    const COLUMNNAME_STORAGE = 'storage';
-    const COLUMNNAME_DATA = 'data';
+    private const COLUMNNAME_ENTRY_ID = 'entry_id';
+    private const COLUMNNAME_STORAGE = 'storage';
+    private const COLUMNNAME_DATA = 'data';
 
-    const COLUMNNAMES = [
+    private const COLUMNNAMES = [
         self::COLUMNNAME_ENTRY_ID,
         self::COLUMNNAME_STORAGE,
         self::COLUMNNAME_DATA,
     ];
 
-    const COLUMNTYPE_ENTRY_ID = Type::STRING;
-    const COLUMNTYPE_STORAGE = Type::INTEGER;
-    const COLUMNTYPE_DATA = Type::BLOB;
+    private const COLUMNTYPE_ENTRY_ID = Types::STRING;
+    private const COLUMNTYPE_STORAGE = Types::INTEGER;
+    private const COLUMNTYPE_DATA = Types::BLOB;
 
-    const COLUMNTYPES = [
+    private const COLUMNTYPES = [
         self::COLUMNTYPE_ENTRY_ID,
         self::COLUMNTYPE_STORAGE,
         self::COLUMNTYPE_DATA,
     ];
 
-    private static $columnTypes = null;
-
     /**
      * @var string[]
      */
-    private $tempfileNames = [];
+    private array $tempfileNames = [];
 
     /**
-     * @var Connection
+     * @var Connection|null
      */
-    protected $databaseConnection;
+    protected ?Connection $databaseConnection = null;
 
     /**
      * @var LoggerInterface
-     * @inject
      */
-    protected $logger;
+    protected LoggerInterface $logger;
 
     /**
      * Cache in which information about file existence is stored.
      *
-     * @var FrontendInterface
+     * @var FrontendInterface|null
      */
-    protected $entryExistenceCache = null;
+    protected ?FrontendInterface $entryExistenceCache = null;
 
     /**
-     * DatabaseDriver constructor.
-     *
      * @param array $configuration
      */
     public function __construct(array $configuration = [])
@@ -761,7 +757,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
 
             if (1 !== $numberUpdated) {
-                $executedQuery->closeCursor();
+                $executedQuery->free();
                 $this->getDatabaseConnection()->rollBack();
                 throw new FileOperationErrorException(
                     \sprintf(
@@ -775,7 +771,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
             $identifierMap[$entryId] = $newEntryIdentifier;
         }
-        $executedQuery->closeCursor();
+        $executedQuery->free();
         $this->getDatabaseConnection()->commit();
 
         foreach ($identifierMap as $oldIdentifier => $newEntryIdentifier) {
@@ -883,6 +879,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
+        /** @var ResultStatement $statement */
         $statement = $this->getDatabaseConnection()->select(
             [
                 self::COLUMNNAME_DATA
@@ -892,8 +889,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                 self::COLUMNNAME_ENTRY_ID => $fileIdentifier,
             ]
         );
-        $result = $statement->fetchColumn(0);
-        $statement->closeCursor();
+        $result = $statement->fetchOne();
+        $statement->free();
 
         return $result;
     }
@@ -1233,7 +1230,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         );
 
         $row = $result->fetch();
-        $result->closeCursor();
+        $result->free();
         if (false === $row) {
             throw new ResourceDoesNotExistException(
                 \sprintf('There is no resource with ID "%s".', $entryIdentifier),
@@ -1245,17 +1242,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     private static function getColumnTypes(): array
     {
-        if (null === static::$columnTypes) {
-            static::$columnTypes = \array_map(
-                function (string $rowTypeString): Type
-                {
-                    return Type::getType($rowTypeString);
-                },
-                self::COLUMNTYPES
-            );
-        }
-
-        return static::$columnTypes;
+        return static::COLUMNTYPES;
     }
 
     private function getBlobDataFromLocalFile(string $localFilePath)
