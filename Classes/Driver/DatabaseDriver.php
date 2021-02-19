@@ -393,7 +393,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                 self::COLUMNNAME_ENTRY_ID   => $newFileId,
                 self::COLUMNNAME_STORAGE    => $this->storageUid,
                 self::COLUMNNAME_DATA       => $fileContents,
-            ]
+            ],
+            static::getColumnTypes()
         );
 
         if (1 !== $numberInserted) {
