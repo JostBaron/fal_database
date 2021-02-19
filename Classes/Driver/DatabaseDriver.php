@@ -893,6 +893,10 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $result = $statement->fetchOne();
         $statement->free();
 
+        if (\is_resource($result)) {
+            return \stream_get_contents($result);
+        }
+
         return $result;
     }
 
