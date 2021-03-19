@@ -23,5 +23,10 @@
   "require": {
     "typo3/cms-core": "~8.7.38 || ~9.5.23",
     "php": "^7.0"
+  },
+  "extra": {
+    "typo3/cms": {
+      "extension-key": "fal_database"
+    }
   }
 }
