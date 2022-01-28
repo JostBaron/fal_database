@@ -270,8 +270,6 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function deleteFolder($folderIdentifier, $deleteRecursively = false): bool
     {
-        $this->disableCaching();
-
         if (!$this->folderExists($folderIdentifier)) {
             throw new FolderDoesNotExistException(
                 \sprintf('Folder with identifier "%s" does not exist.', $folderIdentifier),
@@ -950,7 +948,19 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     {
         $fileContents = $this->getFileContents($fileIdentifier);
         $temporaryFileName = $this->getTemporaryFileName($fileIdentifier);
-        \file_put_contents($temporaryFileName, $fileContents);
+        $result = \file_put_contents($temporaryFileName, $fileContents);
+        if (false === $result) {
+            $this->logger->error(
+                'Failed to write file to local file for processing.',
+                [
+                    'temporaryFileName' => $temporaryFileName,
+                ]
+            );
+            throw new FileOperationErrorException(
+                'Failed to write file to local file for processing.',
+                1643140786
+            );
+        }
 
         $this->logger->debug(
             'Got file for local processing',
@@ -984,6 +994,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     public function isWithin($folderIdentifier, $identifier)
     {
+        $folderIdentifier = $this->canonicalizeAndCheckFolderIdentifier($folderIdentifier);
+
         return GeneralUtility::isFirstPartOfStr($identifier, $folderIdentifier);
     }
 
