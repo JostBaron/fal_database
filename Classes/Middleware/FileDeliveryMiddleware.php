@@ -32,7 +32,7 @@ class FileDeliveryMiddleware implements MiddlewareInterface
     public function __construct()
     {
         $this->responseFactory = GeneralUtility::makeInstance(ResponseFactoryInterface::class);
-        $this->resourceFactory = ResourceFactory::getInstance();
+        $this->resourceFactory = GeneralUtility::makeInstance(ResourceFactory::class);
     }
 
     public function process(ServerRequestInterface $request, RequestHandlerInterface $handler): ResponseInterface
