@@ -1,3 +1,5 @@
 .idea/
+/public/
 /vendor/
 /typo3/
+/composer.lock
