@@ -15,4 +15,4 @@ services:
         schedulable: false
 
   Jbaron\FalDatabase\Service\MigrationService:
-    class: \Jbaron\FalDatabase\Service\MigrationService
+    class: 'Jbaron\FalDatabase\Service\MigrationService'
