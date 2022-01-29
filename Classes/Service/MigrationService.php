@@ -16,46 +16,37 @@ use TYPO3\CMS\Core\Resource\Exception\InsufficientFolderWritePermissionsExceptio
 use TYPO3\CMS\Core\Resource\Folder;
 use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
+use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Extbase\Object\ObjectManager;
 
 class MigrationService implements SingletonInterface
 {
-    const TABLENAME = 'sys_file';
+    private const TABLENAME = 'sys_file';
 
-    /**
-     * @var \TYPO3\CMS\Core\Resource\StorageRepository
-     * @inject
-     */
-    protected $storageRepository;
-
-    /**
-     * @var Connection
-     */
-    protected $databaseConnection;
-
-    /**
-     * @var LoggerInterface
-     */
-    protected $logger;
+    private StorageRepository $storageRepository;
+    private Connection $databaseConnection;
+    private LoggerInterface $logger;
 
     /**
      * IDs of folders to delete from old storage directly.
      *
      * @var string[]
      */
-    private $foldersToDeleteInDriver;
+    private array $foldersToDeleteInDriver;
 
     /**
      * IDs of files to delete from old storage directly.
      *
      * @var string[]
      */
-    private $filesToDeleteInDriver;
+    private array $filesToDeleteInDriver;
 
-    public function __construct()
+    public function __construct(StorageRepository $storageRepository)
     {
+        $this->storageRepository = $storageRepository;
+
         /** @var ConnectionPool $connectionPool */
         $connectionPool = GeneralUtility::makeInstance(ConnectionPool::class);
         $this->databaseConnection = $connectionPool->getConnectionForTable(self::TABLENAME);
@@ -79,8 +70,8 @@ class MigrationService implements SingletonInterface
     public function migrateFolderToDatabaseStorage(
         int $sourceStorageId,
         int $targetStorageId,
-        string $sourceFolderIdentifier = null,
-        string $targetFolderIdentifier = null
+        ?string $sourceFolderIdentifier = null,
+        ?string $targetFolderIdentifier = null
     ): array {
         $errorMessages = [];
 

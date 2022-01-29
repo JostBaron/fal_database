@@ -21,16 +21,20 @@ use TYPO3\CMS\Extbase\Object\ObjectManagerInterface;
  */
 class MigrateToDatabaseStorageCommand extends Command
 {
-    const ARGUMENT_NAME_STORAGEFROM = 'storage-id-from';
-    const ARGUMENT_NAME_STORAGETO = 'storage-id-to';
+    private const ARGUMENT_NAME_STORAGEFROM = 'storage-id-from';
+    private const ARGUMENT_NAME_STORAGETO = 'storage-id-to';
 
-    const OPTION_NAME_SOURCEFOLDER_IDENTIFIER = 'sourcefolder-identifier';
-    const OPTION_NAME_TARGETFOLDER_IDENTIFIER = 'targetfolder-identifier';
+    private const OPTION_NAME_SOURCEFOLDER_IDENTIFIER = 'sourcefolder-identifier';
+    private const OPTION_NAME_TARGETFOLDER_IDENTIFIER = 'targetfolder-identifier';
 
-    /**
-     * @var \Jbaron\FalDatabase\Service\MigrationService
-     */
-    protected $migrationService;
+    protected MigrationService $migrationService;
+
+    public function __construct(string $name, MigrationService $migrationService)
+    {
+        parent::__construct($name);
+
+        $this->migrationService = $migrationService;
+    }
 
     protected function configure()
     {

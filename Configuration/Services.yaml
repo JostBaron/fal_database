@@ -1,0 +1,17 @@
+services:
+  _defaults:
+    autowire: true
+    autoconfigure: true
+    public: true
+
+  Jbaron\FalDatabase\Command\MigrateToDatabaseStorageCommand:
+    class: Jbaron\FalDatabase\Command\MigrateToDatabaseStorageCommand
+    arguments:
+      $migrationService: '@Jbaron\FalDatabase\Service\MigrationService'
+    tags:
+      - name: 'console.command'
+        command: 'faldatabase:migrate-to-database-storage'
+        schedulable: false
+
+  Jbaron\FalDatabase\Service\MigrationService:
+    class: \Jbaron\FalDatabase\Service\MigrationService
