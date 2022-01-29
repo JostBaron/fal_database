@@ -7,6 +7,7 @@ services:
   Jbaron\FalDatabase\Command\MigrateToDatabaseStorageCommand:
     class: Jbaron\FalDatabase\Command\MigrateToDatabaseStorageCommand
     arguments:
+      $name: 'faldatabase:migrate-to-database-storage'
       $migrationService: '@Jbaron\FalDatabase\Service\MigrationService'
     tags:
       - name: 'console.command'
