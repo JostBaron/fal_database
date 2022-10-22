@@ -21,12 +21,18 @@
     }
   },
   "require": {
-    "typo3/cms-core": "^10.4",
-    "php": "^7.4"
+    "typo3/cms-core": "^10.4 || ^11.5",
+    "php": "^7.4 || ^8.0 || ^8.1"
   },
   "extra": {
     "typo3/cms": {
       "extension-key": "fal_database"
+    }
+  },
+  "config": {
+    "allow-plugins": {
+      "typo3/cms-composer-installers": true,
+      "typo3/class-alias-loader": true
     }
   }
 }
