@@ -3,7 +3,7 @@ if (!defined('TYPO3_MODE')) {
     die ('Access denied.');
 }
 
-$GLOBALS['TYPO3_CONF_VARS']['SYS']['fal']['registeredDrivers'][] = [
+$GLOBALS['TYPO3_CONF_VARS']['SYS']['fal']['registeredDrivers'][\Jbaron\FalDatabase\Driver\DatabaseDriver::DRIVER_KEY] = [
     'class' => \Jbaron\FalDatabase\Driver\DatabaseDriver::class,
     'shortName' => \Jbaron\FalDatabase\Driver\DatabaseDriver::DRIVER_KEY,
     'label' => 'Database driver for FAL',
