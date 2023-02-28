@@ -1,14 +1,17 @@
 <?php
-
 declare(strict_types=1);
 
 namespace Jbaron\FalDatabase\Driver;
 
+use Doctrine\DBAL\ConnectionException;
+use Doctrine\DBAL\Driver\Exception;
 use Doctrine\DBAL\Driver\ResultStatement;
 use Doctrine\DBAL\Query\Expression\CompositeExpression;
 use Doctrine\DBAL\Types\Types;
+use InvalidArgumentException;
 use Psr\Log\LoggerInterface;
 use TYPO3\CMS\Core\Cache\CacheManager;
+use TYPO3\CMS\Core\Cache\Exception\NoSuchCacheException;
 use TYPO3\CMS\Core\Cache\Frontend\FrontendInterface;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
@@ -18,10 +21,41 @@ use TYPO3\CMS\Core\Resource\Driver\AbstractHierarchicalFilesystemDriver;
 use TYPO3\CMS\Core\Resource\Exception\FileOperationErrorException;
 use TYPO3\CMS\Core\Resource\Exception\FolderDoesNotExistException;
 use TYPO3\CMS\Core\Resource\Exception\ResourceDoesNotExistException;
-use TYPO3\CMS\Core\Resource\ResourceStorage;
+use TYPO3\CMS\Core\Resource\ResourceStorageInterface;
 use TYPO3\CMS\Core\Type\File\FileInfo;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 use TYPO3\CMS\Core\Utility\PathUtility;
+use function array_filter;
+use function array_merge;
+use function basename;
+use function count;
+use function dirname;
+use function explode;
+use function file_exists;
+use function file_get_contents;
+use function file_put_contents;
+use function filesize;
+use function hash;
+use function hash_algos;
+use function in_array;
+use function is_readable;
+use function is_resource;
+use function is_writable;
+use function ltrim;
+use function pathinfo;
+use function rawurlencode;
+use function rename;
+use function rtrim;
+use function sprintf;
+use function stream_get_contents;
+use function strlen;
+use function strpos;
+use function substr;
+use function sys_get_temp_dir;
+use function tempnam;
+use function trim;
+use function unlink;
+use const PATHINFO_EXTENSION;
 
 class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 {
@@ -83,9 +117,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     {
         parent::__construct($configuration);
 
-        $this->capabilities = ResourceStorage::CAPABILITY_BROWSABLE
-            | ResourceStorage::CAPABILITY_PUBLIC
-            | ResourceStorage::CAPABILITY_WRITABLE;
+        $this->capabilities = ResourceStorageInterface::CAPABILITY_BROWSABLE
+            | ResourceStorageInterface::CAPABILITY_PUBLIC
+            | ResourceStorageInterface::CAPABILITY_WRITABLE;
     }
 
     public function __destruct()
@@ -95,6 +129,10 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
     }
 
+    /**
+     * @return FrontendInterface
+     * @throws NoSuchCacheException
+     */
     private function getExistenceCache(): FrontendInterface
     {
         if (null === $this->entryExistenceCache) {
@@ -104,7 +142,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $this->entryExistenceCache;
     }
 
-    public function isCaseSensitiveFileSystem()
+    public function isCaseSensitiveFileSystem(): bool
     {
         return true;
     }
@@ -125,6 +163,10 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $this->capabilities;
     }
 
+    /**
+     * @return string
+     * @throws NoSuchCacheException
+     */
     public function getRootLevelFolder(): string
     {
         if (!$this->folderExists(self::ROOT_FOLDER_ID)) {
@@ -138,13 +180,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return self::DEFAULT_FOLDER_ID;
     }
 
-    public function getPublicUrl($identifier)
+    public function getPublicUrl($identifier): string
     {
-        return \sprintf(
+        return sprintf(
             '%1$sindex.php?eID=fal_database_download&id=%2$s%%3A%3$s',
             GeneralUtility::getIndpEnv('TYPO3_SITE_URL'),
-            \rawurlencode((string)$this->storageUid),
-            \rawurlencode($identifier)
+            rawurlencode((string)$this->storageUid),
+            rawurlencode($identifier)
         );
     }
 
@@ -153,7 +195,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      *
      * @throws FileOperationErrorException
      * @throws FolderDoesNotExistException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException
+     * @throws NoSuchCacheException
      */
     public function createFolder($newFolderName, $parentFolderIdentifier = '', $recursive = false): string
     {
@@ -172,20 +215,20 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         if (!$this->folderExists($parentFolderIdentifier)) {
             throw new FolderDoesNotExistException(
-                \sprintf('Parent folder with ID "%s" does not exist', $parentFolderIdentifier),
+                sprintf('Parent folder with ID "%s" does not exist', $parentFolderIdentifier),
                 1578678889
             );
         }
 
-        $pathPartsOfFolderToCreate = \explode('/', $parentFolderIdentifier);
+        $pathPartsOfFolderToCreate = explode('/', $parentFolderIdentifier);
         if (!$recursive) {
             $pathPartsOfFolderToCreate[] = $newFolderName;
         } else {
-            $pathPartsOfNewFoldersName = \explode('/', $newFolderName);
-            $pathPartsOfFolderToCreate = \array_merge($pathPartsOfFolderToCreate, $pathPartsOfNewFoldersName);
+            $pathPartsOfNewFoldersName = explode('/', $newFolderName);
+            $pathPartsOfFolderToCreate = array_merge($pathPartsOfFolderToCreate, $pathPartsOfNewFoldersName);
         }
 
-        $pathPartsOfFolderToCreate = \array_filter(
+        $pathPartsOfFolderToCreate = array_filter(
             $pathPartsOfFolderToCreate,
             function (string $pathPart): bool
             {
@@ -221,7 +264,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             }
         }
 
-        if (\count($insertData) > 0) {
+        if (count($insertData) > 0) {
             $numberInserted = $this->getDatabaseConnection()->bulkInsert(
                 self::TABLENAME,
                 $insertData,
@@ -229,7 +272,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                 static::getColumnTypes()
             );
 
-            if (\count($insertData) !== $numberInserted) {
+            if (count($insertData) !== $numberInserted) {
                 $this->getDatabaseConnection()->rollBack();
                 throw new FileOperationErrorException(
                     'Could not insert at least one folder entry.',
@@ -250,11 +293,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      *
      * @throws FileOperationErrorException
      * @throws FolderDoesNotExistException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException
+     * @throws Exception
+     * @throws NoSuchCacheException
      */
     public function renameFolder($folderIdentifier, $newName): array
     {
-        $targetFolderIdentifier = \rtrim(\dirname($folderIdentifier), '/') . '/';
+        $targetFolderIdentifier = rtrim(dirname($folderIdentifier), '/') . '/';
         return $this->moveFolderWithinStorage($folderIdentifier, $targetFolderIdentifier, $newName);
     }
 
@@ -262,13 +307,14 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FolderDoesNotExistException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException|Exception
+     * @throws NoSuchCacheException
      */
     public function deleteFolder($folderIdentifier, $deleteRecursively = false): bool
     {
         if (!$this->folderExists($folderIdentifier)) {
             throw new FolderDoesNotExistException(
-                \sprintf('Folder with identifier "%s" does not exist.', $folderIdentifier),
+                sprintf('Folder with identifier "%s" does not exist.', $folderIdentifier),
                 1578231639
             );
         }
@@ -290,7 +336,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             ->execute();
 
         $entryIdentifiersToDelete = [];
-        while (null !== ($entryIdentifier = $executedStatement->fetchColumn(0))) {
+        while (null !== ($entryIdentifier = $executedStatement->fetchOne())) {
             $entryIdentifiersToDelete[] = $entryIdentifier;
             $this->getDatabaseConnection()->delete(
                 self::TABLENAME,
@@ -309,6 +355,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return true;
     }
 
+    /**
+     * @param $fileIdentifier
+     * @return bool
+     * @throws NoSuchCacheException
+     */
     public function fileExists($fileIdentifier): bool
     {
         if (!$this->isFileIdentifier($fileIdentifier)) {
@@ -318,6 +369,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $this->doesItemWithIdentifierExist($fileIdentifier);
     }
 
+    /**
+     * @param $folderIdentifier
+     * @return bool
+     * @throws NoSuchCacheException
+     */
     public function folderExists($folderIdentifier): bool
     {
         if (!$this->isFolderIdentifier($folderIdentifier)) {
@@ -332,7 +388,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $numberFolderEntriesExcludingSelf = $queryBuilder
             ->count('*')
             ->from(self::TABLENAME)
-            ->where($this->getConditionForAllSubEntries($queryBuilder, $folderIdentifier, false));
+            ->where($this->getConditionForAllSubEntries($queryBuilder, $folderIdentifier))
+            ->execute()
+        ;
 
         return 0 === $numberFolderEntriesExcludingSelf;
     }
@@ -342,26 +400,27 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      *
      * @throws FileOperationErrorException
      * @throws FolderDoesNotExistException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException
+     * @throws NoSuchCacheException
      */
     public function addFile($localFilePath, $targetFolderIdentifier, $newFileName = '', $removeOriginal = true): string
     {
         if ('' === $newFileName) {
-            $newFileName = \basename($localFilePath);
+            $newFileName = basename($localFilePath);
         }
 
         $this->getDatabaseConnection()->beginTransaction();
 
         if (!$this->folderExists($targetFolderIdentifier)) {
             throw new FolderDoesNotExistException(
-                \sprintf('Folder with ID "%s" to add file to does not exist.', $targetFolderIdentifier),
+                sprintf('Folder with ID "%s" to add file to does not exist.', $targetFolderIdentifier),
                 1578465395
             );
         }
 
         if ($this->fileExistsInFolder($newFileName, $targetFolderIdentifier)) {
             throw new FileOperationErrorException(
-                \sprintf(
+                sprintf(
                     'There already is a file named "%s" in folder with ID "%s".',
                     $targetFolderIdentifier,
                     $newFileName
@@ -370,16 +429,16 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        if (!\is_readable($localFilePath)) {
+        if (!is_readable($localFilePath)) {
             throw new FileOperationErrorException(
-                \sprintf('Cannot read file "%s" to add it to the file storage.', $localFilePath),
+                sprintf('Cannot read file "%s" to add it to the file storage.', $localFilePath),
                 1578465610
             );
         }
-        $fileContents = \file_get_contents($localFilePath);
+        $fileContents = file_get_contents($localFilePath);
         if (false === $fileContents) {
             throw new FileOperationErrorException(
-                \sprintf('Could not read file "%s" to add it to the file storage.', $localFilePath),
+                sprintf('Could not read file "%s" to add it to the file storage.', $localFilePath),
                 1578465693
             );
         }
@@ -398,22 +457,22 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if (1 !== $numberInserted) {
             $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
-                \sprintf('Failed to insert new file with name "%s" into the database', $newFileName),
+                sprintf('Failed to insert new file with name "%s" into the database', $newFileName),
                 1578465756
             );
         }
 
         if ($removeOriginal) {
-            if (!\is_writable($localFilePath)) {
+            if (!is_writable($localFilePath)) {
                 throw new FileOperationErrorException(
-                    \sprintf(
+                    sprintf(
                         'Cannot write file "%s" to remove it from the file system after adding it to the storage.',
                         $localFilePath
                     ),
                     1578465610
                 );
             }
-            \unlink($localFilePath);
+            unlink($localFilePath);
         }
 
         $this->getDatabaseConnection()->commit();
@@ -427,14 +486,15 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FileOperationErrorException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException
+     * @throws NoSuchCacheException
      */
     public function createFile($fileName, $parentFolderIdentifier): string
     {
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($parentFolderIdentifier)) {
             throw new FileOperationErrorException(
-                \sprintf(
+                sprintf(
                     'Parent folder with ID "%s" for creating an empty file with name "%s" does not exist',
                     $parentFolderIdentifier,
                     $fileName
@@ -463,7 +523,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         $this->getDatabaseConnection()->rollBack();
         throw new FileOperationErrorException(
-            \sprintf(
+            sprintf(
                 'Could not create file with name "%s" in folder with identifier "%s"',
                 $fileName,
                 $parentFolderIdentifier
@@ -478,7 +538,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * @throws FileOperationErrorException
      * @throws FolderDoesNotExistException
      * @throws ResourceDoesNotExistException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException
+     * @throws Exception
+     * @throws NoSuchCacheException
      */
     public function copyFileWithinStorage($fileIdentifier, $targetFolderIdentifier, $fileName): string
     {
@@ -487,7 +549,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if (!$this->folderExists($targetFolderIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
             throw new FolderDoesNotExistException(
-                \sprintf(
+                sprintf(
                     'Target folder with ID "%s" to copy file with ID "%s" to does not exist',
                     $targetFolderIdentifier,
                     $fileIdentifier
@@ -499,7 +561,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if ($this->fileExistsInFolder($targetFolderIdentifier, $fileName)) {
             $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
-                \sprintf(
+                sprintf(
                     'Target folder with ID "%s" already contains an entry with name "%s".',
                     $targetFolderIdentifier,
                     $fileName
@@ -529,7 +591,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         $this->getDatabaseConnection()->rollBack();
         throw new FileOperationErrorException(
-            \sprintf('Could not copy file "%s".', $targetFolderIdentifier),
+            sprintf('Could not copy file "%s".', $targetFolderIdentifier),
             1578247389
         );
     }
@@ -538,11 +600,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FileOperationErrorException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException
+     * @throws NoSuchCacheException
      */
-    public function renameFile($fileIdentifier, $newFileName): string
+    public function renameFile($fileIdentifier, $newName): string
     {
-        $newFileIdentifier = \rtrim(\dirname($fileIdentifier), '/') . '/' . $this->sanitizeFileName($newFileName);
+        $newFileIdentifier = rtrim(dirname($fileIdentifier), '/') . '/' . $this->sanitizeFileName($newName);
 
         if ($fileIdentifier === $newFileIdentifier) {
             return $fileIdentifier;
@@ -552,10 +615,10 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if ($this->fileExists($newFileIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
-                \sprintf(
+                sprintf(
                     'Cannot rename file with ID "%s" to "%s" because that file already exists.',
                     $fileIdentifier,
-                    $newFileName
+                    $newName
                 ),
                 1578681832
             );
@@ -574,7 +637,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if (1 !== $numberUpdated) {
             $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
-                \sprintf('Failed to rename file with ID "%s"', $fileIdentifier),
+                sprintf('Failed to rename file with ID "%s"', $fileIdentifier),
                 1578682088
             );
         }
@@ -591,7 +654,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FileOperationErrorException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException
+     * @throws NoSuchCacheException
      */
     public function replaceFile($fileIdentifier, $localFilePath): bool
     {
@@ -599,7 +663,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if (!$this->fileExists($fileIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
-                \sprintf(
+                sprintf(
                     'File with ID "%s" to replace does not exist',
                     $fileIdentifier
                 ),
@@ -626,7 +690,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FileOperationErrorException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException
+     * @throws NoSuchCacheException
      */
     public function deleteFile($fileIdentifier): bool
     {
@@ -634,7 +699,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if (!$this->fileExists($fileIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
-                \sprintf(
+                sprintf(
                     'File with ID "%s" to delete does not exist',
                     $fileIdentifier
                 ),
@@ -664,12 +729,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FileOperationErrorException
+     * @throws NoSuchCacheException
      */
-    public function hash($fileIdentifier, $hashAlgorithm)
+    public function hash($fileIdentifier, $hashAlgorithm): string
     {
-        if (!\in_array($hashAlgorithm, \hash_algos(), true)) {
+        if (!in_array($hashAlgorithm, hash_algos(), true)) {
             throw new FileOperationErrorException(
-                \sprintf(
+                sprintf(
                     'Hashing file with ID "%s" failed because hash algorithm "%s" is unsupported.',
                     $fileIdentifier,
                     $hashAlgorithm
@@ -678,16 +744,17 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        return \hash($hashAlgorithm, $this->getFileContents($fileIdentifier));
+        return hash($hashAlgorithm, $this->getFileContents($fileIdentifier));
     }
 
     /**
      * {@inheritDoc}
      *
      * @throws FileOperationErrorException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException
+     * @throws NoSuchCacheException
      */
-    public function moveFileWithinStorage($fileIdentifier, $targetFolderIdentifier, $newFileName)
+    public function moveFileWithinStorage($fileIdentifier, $targetFolderIdentifier, $newFileName): string
     {
         $newFileIdentifier = $targetFolderIdentifier . $this->sanitizeFileName($newFileName, 'UTF-8');
 
@@ -701,15 +768,17 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      *
      * @throws FileOperationErrorException
      * @throws FolderDoesNotExistException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException
+     * @throws Exception
+     * @throws NoSuchCacheException
      */
-    public function moveFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName)
+    public function moveFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName): array
     {
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($sourceFolderIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
             throw new FolderDoesNotExistException(
-                \sprintf('Folder "%s" for moving does not exist.', $sourceFolderIdentifier),
+                sprintf('Folder "%s" for moving does not exist.', $sourceFolderIdentifier),
                 1578682477
             );
         }
@@ -717,7 +786,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if (!$this->folderExists($targetFolderIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
             throw new FolderDoesNotExistException(
-                \sprintf(
+                sprintf(
                     'Folder "%s" for moving folder "%s" to does not exist.',
                     $targetFolderIdentifier,
                     $sourceFolderIdentifier
@@ -736,7 +805,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             ->execute();
 
         $identifierMap = [];
-        while (false !== ($entryId = $executedQuery->fetchColumn(0))) {
+        while (false !== ($entryId = $executedQuery->fetchOne())) {
 
             // If for some reason the fetched identifier does not begin with the folder identifier, ignore it.
             if (!GeneralUtility::isFirstPartOfStr($entryId, $sourceFolderIdentifier)) {
@@ -744,7 +813,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             }
 
             $newEntryIdentifier = $targetFolderIdentifier . $this->sanitizeFileName($newFolderName) . '/'
-                . \substr($entryId, \strlen($sourceFolderIdentifier));
+                . substr($entryId, strlen($sourceFolderIdentifier));
             $numberUpdated = $this->getDatabaseConnection()->update(
                 self::TABLENAME,
                 [
@@ -759,7 +828,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                 $executedQuery->free();
                 $this->getDatabaseConnection()->rollBack();
                 throw new FileOperationErrorException(
-                    \sprintf(
+                    sprintf(
                         'Moving folder failed because entry with ID "%s" in storage %d could not be moved',
                         $entryId,
                         $this->storageUid
@@ -786,15 +855,17 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      *
      * @throws FileOperationErrorException
      * @throws FolderDoesNotExistException
-     * @throws \Doctrine\DBAL\ConnectionException
+     * @throws ConnectionException
+     * @throws Exception
+     * @throws NoSuchCacheException
      */
-    public function copyFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName)
+    public function copyFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName): bool
     {
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($sourceFolderIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
             throw new FolderDoesNotExistException(
-                \sprintf(
+                sprintf(
                     'Folder with ID "%s" to copy to folder "%s" does not exist.',
                     $sourceFolderIdentifier,
                     $targetFolderIdentifier
@@ -806,7 +877,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if ($this->folderExistsInFolder($newFolderName, $targetFolderIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
-                \sprintf(
+                sprintf(
                     'There already is a folder named "%s" in folder with ID "%s".',
                     $newFolderName,
                     $targetFolderIdentifier
@@ -825,9 +896,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             ->execute();
 
         $dataToInsert = [];
-        while (false !== ($row = $executedStatement->fetch())) {
+        while (false !== ($row = $executedStatement->fetchAssociative())) {
             $oldIdentifier = $row[self::COLUMNNAME_ENTRY_ID];
-            $newIdentifier = $copiedFolderIdentifier . \substr($oldIdentifier, \strlen($sourceFolderIdentifier));
+            $newIdentifier = $copiedFolderIdentifier . substr($oldIdentifier, strlen($sourceFolderIdentifier));
 
             $this->getExistenceCache()->set($newIdentifier, true);
 
@@ -845,9 +916,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             static::getColumnTypes()
         );
 
-        if (\count($dataToInsert) !== $numberInserted) {
+        if (count($dataToInsert) !== $numberInserted) {
             $this->getDatabaseConnection()->rollBack();
-            $this->enableCaching();
             return false;
         }
 
@@ -865,12 +935,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FileOperationErrorException
+     * @throws NoSuchCacheException
      */
     public function getFileContents($fileIdentifier)
     {
         if (!$this->fileExists($fileIdentifier)) {
             throw new FileOperationErrorException(
-                \sprintf(
+                sprintf(
                     'File with ID "%s" to get contents for does not exist',
                     $fileIdentifier
                 ),
@@ -891,8 +962,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $result = $statement->fetchOne();
         $statement->free();
 
-        if (\is_resource($result)) {
-            return \stream_get_contents($result);
+        if (is_resource($result)) {
+            return stream_get_contents($result);
         }
 
         return $result;
@@ -902,12 +973,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FileOperationErrorException
+     * @throws NoSuchCacheException
      */
-    public function setFileContents($fileIdentifier, $contents)
+    public function setFileContents($fileIdentifier, $contents): int
     {
         if (!$this->fileExists($fileIdentifier)) {
             throw new FileOperationErrorException(
-                \sprintf(
+                sprintf(
                     'File with ID "%s" to get contents for does not exist',
                     $fileIdentifier
                 ),
@@ -926,15 +998,27 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             static::getColumnTypes()
         );
 
-        return 1 === $numberRowsChanged ? \strlen($contents) : 0;
+        return 1 === $numberRowsChanged ? strlen($contents) : 0;
     }
 
+    /**
+     * @param $fileName
+     * @param $folderIdentifier
+     * @return bool
+     * @throws NoSuchCacheException
+     */
     public function fileExistsInFolder($fileName, $folderIdentifier): bool
     {
         $fileIdentifier = $folderIdentifier . $this->sanitizeFileName($fileName, 'UTF-8');
         return $this->doesItemWithIdentifierExist($fileIdentifier);
     }
 
+    /**
+     * @param $folderName
+     * @param $folderIdentifier
+     * @return bool
+     * @throws NoSuchCacheException
+     */
     public function folderExistsInFolder($folderName, $folderIdentifier): bool
     {
         $queriedFolderIdentifier = $folderIdentifier . $this->sanitizeFileName($folderName, 'UTF-8') . '/';
@@ -945,12 +1029,13 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FileOperationErrorException
+     * @throws NoSuchCacheException
      */
     public function getFileForLocalProcessing($fileIdentifier, $writable = true): string
     {
         $fileContents = $this->getFileContents($fileIdentifier);
         $temporaryFileName = $this->getTemporaryFileName($fileIdentifier);
-        $result = \file_put_contents($temporaryFileName, $fileContents);
+        $result = file_put_contents($temporaryFileName, $fileContents);
         if (false === $result) {
             $this->logger->error(
                 'Failed to write file to local file for processing.',
@@ -969,14 +1054,14 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             [
                 'file' => $fileIdentifier,
                 'tempPath' => $temporaryFileName,
-                'downloadedSize' => \filesize($temporaryFileName),
+                'downloadedSize' => filesize($temporaryFileName),
             ]
         );
 
         return $temporaryFileName;
     }
 
-    public function getPermissions($identifier)
+    public function getPermissions($identifier): array
     {
         return [
             'r' => true,
@@ -988,23 +1073,27 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FileOperationErrorException
+     * @throws NoSuchCacheException
      */
     public function dumpFileContents($identifier)
     {
         echo $this->getFileContents($identifier);
     }
 
-    public function isWithin($folderIdentifier, $identifier)
+    public function isWithin($folderIdentifier, $identifier): bool
     {
         $folderIdentifier = $this->canonicalizeAndCheckFolderIdentifier($folderIdentifier);
 
-        return GeneralUtility::isFirstPartOfStr($identifier, $folderIdentifier);
+        return str_starts_with($identifier, $folderIdentifier);
     }
 
     /**
      * {@inheritDoc}
      *
      * @throws ResourceDoesNotExistException
+     * @throws FileOperationErrorException
+     * @throws Exception
+     * @throws NoSuchCacheException
      */
     public function getFileInfoByIdentifier($fileIdentifier, array $propertiesToExtract = []): array
     {
@@ -1024,7 +1113,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     {
         $folderInfo = [
             'identifier' => $folderIdentifier,
-            'name' => \basename($folderIdentifier),
+            'name' => basename($folderIdentifier),
             'storage' => $this->storageUid
         ];
 
@@ -1042,6 +1131,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FolderDoesNotExistException
+     * @throws Exception
+     * @throws NoSuchCacheException
      */
     public function getFilesInFolder(
         $folderIdentifier,
@@ -1064,7 +1155,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         $this->logger->debug('All entries in folder.', ['folder' => $folderIdentifier, 'entries' => $allFolderEntries]);
 
-        $fileFolderEntries = \array_filter(
+        $fileFolderEntries = array_filter(
             $allFolderEntries,
             function (string $entry): bool
             {
@@ -1091,6 +1182,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FolderDoesNotExistException
+     * @throws Exception
+     * @throws NoSuchCacheException
      */
     public function getFoldersInFolder(
         $folderIdentifier,
@@ -1113,7 +1206,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         $this->logger->debug('All entries in folder.', ['folder' => $folderIdentifier, 'entries' => $allFolderEntries]);
 
-        $folderFolderEntries = \array_filter(
+        $folderFolderEntries = array_filter(
             $allFolderEntries,
             function (string $entry): bool
             {
@@ -1135,13 +1228,15 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FolderDoesNotExistException
+     * @throws Exception
+     * @throws NoSuchCacheException
      */
     public function countFilesInFolder(
         $folderIdentifier,
         $recursive = false,
         array $filenameFilterCallbacks = []
     ): int {
-        return \count(
+        return count(
             $this->getFilesInFolder(
                 $folderIdentifier,
                 0,
@@ -1156,13 +1251,15 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * {@inheritDoc}
      *
      * @throws FolderDoesNotExistException
+     * @throws Exception
+     * @throws NoSuchCacheException
      */
     public function countFoldersInFolder(
         $folderIdentifier,
         $recursive = false,
         array $folderNameFilterCallbacks = []
     ): int {
-        return \count(
+        return count(
             $this->getFoldersInFolder(
                 $folderIdentifier,
                 0,
@@ -1173,13 +1270,18 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         );
     }
 
+    /**
+     * @param string $identifier
+     * @return bool
+     * @throws NoSuchCacheException
+     */
     private function doesItemWithIdentifierExist(string $identifier): bool
     {
         if ('' === $identifier) {
             return true;
         }
 
-        $identifier = '/' . \ltrim($identifier, '/');
+        $identifier = '/' . ltrim($identifier, '/');
 
         if ($this->hasExistenceCacheEntry($identifier)) {
             return $this->getExistenceCacheEntry($identifier);
@@ -1198,16 +1300,32 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return $itemExists;
     }
 
+    /**
+     * @param string $itemIdentifier
+     * @param bool $exists
+     * @return void
+     * @throws NoSuchCacheException
+     */
     private function setExistenceCacheEntry(string $itemIdentifier, bool $exists): void
     {
         $this->getExistenceCache()->set($this->getCacheKey($itemIdentifier), $exists);
     }
 
+    /**
+     * @param string $itemIdentifier
+     * @return bool
+     * @throws NoSuchCacheException
+     */
     private function hasExistenceCacheEntry(string $itemIdentifier): bool
     {
         return $this->getExistenceCache()->has($this->getCacheKey($itemIdentifier));
     }
 
+    /**
+     * @param string $itemIdentifier
+     * @return bool
+     * @throws NoSuchCacheException
+     */
     private function getExistenceCacheEntry(string $itemIdentifier): bool
     {
         return $this->getExistenceCache()->get($this->getCacheKey($itemIdentifier));
@@ -1215,7 +1333,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     private function getCacheKey(string $itemIdentifier): string
     {
-        return \hash('sha256', $this->storageUid . ':' . $itemIdentifier);
+        return hash('sha256', $this->storageUid . ':' . $itemIdentifier);
     }
 
     private function createRootFolder()
@@ -1232,9 +1350,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     }
 
     /**
-     * {@inheritDoc}
-     *
      * @throws ResourceDoesNotExistException
+     * @throws Exception
      */
     private function getEntryRow(string $entryIdentifier): array
     {
@@ -1246,11 +1363,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             ]
         );
 
-        $row = $result->fetch();
+        $row = $result->fetchAssociative();
         $result->free();
         if (false === $row) {
             throw new ResourceDoesNotExistException(
-                \sprintf('There is no resource with ID "%s".', $entryIdentifier),
+                sprintf('There is no resource with ID "%s".', $entryIdentifier),
                 1578665811
             );
         }
@@ -1264,11 +1381,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     private function getBlobDataFromLocalFile(string $localFilePath)
     {
-        if (!\is_readable($localFilePath)) {
+        if (!is_readable($localFilePath)) {
             return null;
         }
 
-        return \file_get_contents($localFilePath);
+        return file_get_contents($localFilePath);
     }
 
     /**
@@ -1281,8 +1398,10 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      *
      * @throws ResourceDoesNotExistException
      * @throws FileOperationErrorException
+     * @throws Exception
+     * @throws NoSuchCacheException
      */
-    private function extractFileInformation(string $identifier, array $propertiesToExtract = [])
+    private function extractFileInformation(string $identifier, array $propertiesToExtract = []): array
     {
         if (empty($propertiesToExtract)) {
             $propertiesToExtract = [
@@ -1314,23 +1433,24 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * @return bool|int|string
      *
      * @throws FileOperationErrorException
+     * @throws NoSuchCacheException
      */
     private function getSpecificFileInformation(array $fileRow, string $property)
     {
         switch ($property) {
             case 'size':
-                return \strlen($fileRow[self::COLUMNNAME_DATA]);
+                return strlen($fileRow[self::COLUMNNAME_DATA]);
             case 'name':
-                return \basename($fileRow[self::COLUMNNAME_ENTRY_ID]);
+                return basename($fileRow[self::COLUMNNAME_ENTRY_ID]);
             case 'extension':
-                return PathUtility::pathinfo($fileRow[self::COLUMNNAME_ENTRY_ID], \PATHINFO_EXTENSION);
+                return PathUtility::pathinfo($fileRow[self::COLUMNNAME_ENTRY_ID], PATHINFO_EXTENSION);
             case 'mimetype':
                 $localFilePath = $this->getFileForLocalProcessing($fileRow[self::COLUMNNAME_ENTRY_ID]);
                 /** @var FileInfo $fileInfo */
                 $fileInfo = GeneralUtility::makeInstance(FileInfo::class, $localFilePath);
                 $mimeType = (string)$fileInfo->getMimeType();
                 $fileInfo = null;
-                \unlink($localFilePath);
+                unlink($localFilePath);
                 return $mimeType;
             case 'identifier':
                 return $fileRow[self::COLUMNNAME_ENTRY_ID];
@@ -1339,20 +1459,20 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             case 'identifier_hash':
                 return $this->hashIdentifier($fileRow[self::COLUMNNAME_ENTRY_ID]);
             case 'folder_hash':
-                $folderIdentifier = \rtrim(\dirname($fileRow[self::COLUMNNAME_ENTRY_ID])) . '/';
+                $folderIdentifier = rtrim(dirname($fileRow[self::COLUMNNAME_ENTRY_ID])) . '/';
                 return $this->hashIdentifier($folderIdentifier);
             default:
-                throw new \InvalidArgumentException(
-                    \sprintf('The information "%s" is not available for files from the database storage.', $property),
+                throw new InvalidArgumentException(
+                    sprintf('The information "%s" is not available for files from the database storage.', $property),
                     1578378410
                 );
         }
     }
 
     /**
-     * {@inheritDoc}
-     *
      * @throws FolderDoesNotExistException
+     * @throws Exception
+     * @throws NoSuchCacheException
      */
     private function getFolderEntries(
         $folderIdentifier,
@@ -1365,7 +1485,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     ): array {
         if (!$this->folderExists($folderIdentifier)) {
             throw new FolderDoesNotExistException(
-                \sprintf('Folder with ID "%s" to get entries for does not exist.', $folderIdentifier),
+                sprintf('Folder with ID "%s" to get entries for does not exist.', $folderIdentifier),
                 1578463218
             );
         }
@@ -1389,8 +1509,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         $entries = [];
         $executedStatement = $queryBuilder->execute();
-        while (false !== ($entryId = $executedStatement->fetchColumn(0))) {
-            $identifierPartAfterFolderId = \substr($entryId, \strlen($folderIdentifier));
+        while (false !== ($entryId = $executedStatement->fetchOne())) {
+            $identifierPartAfterFolderId = substr($entryId, strlen($folderIdentifier));
             $this->logger->debug(
                 'Got entry',
                 [
@@ -1401,14 +1521,14 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
 
             // Skip entries which are in subfolders if entries should not be fetched recursively
-            $isDirectChildOfFolder = false === \strpos(\rtrim($identifierPartAfterFolderId, '/'), '/');
+            $isDirectChildOfFolder = false === strpos(rtrim($identifierPartAfterFolderId, '/'), '/');
             if (!$recursive && !$isDirectChildOfFolder) {
                 $this->logger->debug('Not fetching recursively, and entry is no direct child - skipping');
                 continue;
             }
 
-            $entryFolderIdentifier = \rtrim(\dirname($entryId)) . '/';
-            $entryName = \trim(\basename($entryId), '/');
+            $entryFolderIdentifier = rtrim(dirname($entryId)) . '/';
+            $entryName = trim(basename($entryId), '/');
             foreach ($nameFilterCallbacks as $nameFilterCallback) {
                 $this->logger->debug(
                     'Checking name filter',
@@ -1441,12 +1561,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     private function isFileIdentifier(string $identifier): bool
     {
-        return '/' !== \substr($identifier, -1);
+        return '/' !== substr($identifier, -1);
     }
 
     private function isFolderIdentifier(string $identifier): bool
     {
-        return '/' === \substr($identifier, -1);
+        return '/' === substr($identifier, -1);
     }
 
     private function getConditionForAllSubEntries(
@@ -1489,7 +1609,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     private function getTemporaryFileName(string $fileIdentifier): string
     {
-        $temporaryFileName = \tempnam(\sys_get_temp_dir(), 'typo3_fal_database');
+        $temporaryFileName = tempnam(sys_get_temp_dir(), 'typo3_fal_database');
         if (false === $temporaryFileName) {
             throw new FileOperationErrorException(
                 'Could not create temporary file in database FAL driver.',
@@ -1499,15 +1619,15 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         // Add file extension, otherwise the file will not be processed because the extension
         // is not in the list of whitelisted extensions.
-        $newTemporaryFilename = $temporaryFileName . '.' . \pathinfo($fileIdentifier, \PATHINFO_EXTENSION);
-        if (\file_exists($newTemporaryFilename)) {
+        $newTemporaryFilename = $temporaryFileName . '.' . pathinfo($fileIdentifier, PATHINFO_EXTENSION);
+        if (file_exists($newTemporaryFilename)) {
             throw new FileOperationErrorException(
                 'Could not rename temporary file in database FAL driver to contain the correct extension, '
                 . 'because a file with the correct extension already exists.',
                 1580145965
             );
         }
-        $renameResult = \rename($temporaryFileName, $newTemporaryFilename);
+        $renameResult = rename($temporaryFileName, $newTemporaryFilename);
         if (false === $renameResult) {
             throw new FileOperationErrorException(
                 'Could not rename temporary file in database FAL driver to contain the correct extension.',
