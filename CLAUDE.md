@@ -10,13 +10,21 @@ The Mein-Bauernhof sites consume it through Composer. The workspace-level CLAUDE
 
 ## Commands
 
-There is no test suite, linter or build step. `vendor/` and `public/typo3/` come from a local `composer install`, which exists only so the IDE can resolve TYPO3 classes; both are gitignored, as is `composer.lock`. A quick sanity check is a PHP syntax lint:
+Everything runs in Docker through `Build/Scripts/runTests.sh`. PHP runs in TYPO3's `ghcr.io/typo3/core-testing-php81` image, not on the host, which has PHP 8.3 and no `pdo_mysql`. `vendor/`, `public/` and `composer.lock` are gitignored.
 
 ```bash
-find Classes Configuration -name '*.php' -exec php -l {} \;
+Build/Scripts/runTests.sh -s composer -- install       # dev dependencies (typo3/testing-framework, phpunit)
+Build/Scripts/runTests.sh                              # functional tests against PostgreSQL (production DBMS)
+Build/Scripts/runTests.sh -d mariadb                   # ... against MariaDB
+Build/Scripts/runTests.sh -- --filter renameFile       # single test / class; args after -- go to phpunit
+Build/Scripts/runTests.sh -s lint                      # php -l over Classes, Configuration, Tests
 ```
 
-To exercise the code you need a TYPO3 installation, such as one of the Sites' dev environments, with this extension installed. The one CLI entry point is:
+Every run of the functional suite starts a fresh database container on tmpfs, with fsync, doublewrite and binlog switched off. The container and its Docker network are removed when the run ends. The tests are `typo3/testing-framework` functional tests in `Tests/Functional/`, configured by `Build/phpunit/FunctionalTests.xml`. All of them extend `AbstractFunctionalTestCase`, which creates database storage UID 1. It also provides `insertEntries()` and `getEntryIdentifiers()`/`getEntryData()`, which seed and inspect `tx_jbaron_faldatabase_entry` directly, so a test of one driver method doesn't depend on others. There are no unit tests.
+
+Composer 2.9+ blocks installing versions with security advisories by default, and every TYPO3 10.4/11.5 release has some. Whether to allow them for this dev install is Jost's decision. Ask before passing `--no-blocking` or adding a `policy` config.
+
+To exercise the code in a real site instead, install this extension in one of the Sites' dev environments. The one CLI entry point is:
 
 ```bash
 vendor/bin/typo3 faldatabase:migrate-to-database-storage <storage-id-from> <storage-id-to> [-s <source-folder-id>] [-t <target-folder-id>]
