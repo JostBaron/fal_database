@@ -828,6 +828,22 @@ class DatabaseDriverTest extends AbstractFunctionalTestCase
     /**
      * @test
      */
+    public function moveFileWithinStorageThrowsForMissingTargetFolderAndKeepsFile(): void
+    {
+        $this->insertEntries(['/a.txt' => 'a']);
+
+        try {
+            $this->subject->moveFileWithinStorage('/a.txt', '/missing/', 'a.txt');
+            self::fail('Expected an exception.');
+        } catch (FolderDoesNotExistException $exception) {
+            // expected
+        }
+        self::assertSame(['/', '/a.txt'], $this->getEntryIdentifiers());
+    }
+
+    /**
+     * @test
+     */
     public function copyFileWithinStorageCopiesContentsAndKeepsSource(): void
     {
         $this->insertEntries(['/a/' => null, '/a/x.bin' => self::binaryContents(), '/b/' => null]);

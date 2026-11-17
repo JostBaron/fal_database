@@ -607,6 +607,20 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     {
         $newFileIdentifier = rtrim(dirname($fileIdentifier), '/') . '/' . $this->sanitizeFileName($newName);
 
+        return $this->moveFile($fileIdentifier, $newFileIdentifier);
+    }
+
+    /**
+     * Changes the identifier of a file, i.e. renames and/or moves it.
+     *
+     * @return string The new identifier.
+     *
+     * @throws FileOperationErrorException
+     * @throws ConnectionException
+     * @throws NoSuchCacheException
+     */
+    private function moveFile(string $fileIdentifier, string $newFileIdentifier): string
+    {
         if ($fileIdentifier === $newFileIdentifier) {
             return $fileIdentifier;
         }
@@ -616,9 +630,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
                 sprintf(
-                    'Cannot rename file with ID "%s" to "%s" because that file already exists.',
+                    'Cannot move file with ID "%s" to "%s" because that file already exists.',
                     $fileIdentifier,
-                    $newName
+                    $newFileIdentifier
                 ),
                 1578681832
             );
@@ -637,7 +651,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         if (1 !== $numberUpdated) {
             $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
-                sprintf('Failed to rename file with ID "%s"', $fileIdentifier),
+                sprintf('Failed to move file with ID "%s"', $fileIdentifier),
                 1578682088
             );
         }
@@ -758,11 +772,20 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function moveFileWithinStorage($fileIdentifier, $targetFolderIdentifier, $newFileName): string
     {
-        $newFileIdentifier = $targetFolderIdentifier . $this->sanitizeFileName($newFileName, 'UTF-8');
+        if (!$this->folderExists($targetFolderIdentifier)) {
+            throw new FolderDoesNotExistException(
+                sprintf(
+                    'Folder "%s" to move file "%s" to does not exist.',
+                    $targetFolderIdentifier,
+                    $fileIdentifier
+                ),
+                1794958301
+            );
+        }
 
-        $this->renameFile($fileIdentifier, $newFileIdentifier);
+        $newFileIdentifier = rtrim($targetFolderIdentifier, '/') . '/' . $this->sanitizeFileName($newFileName, 'UTF-8');
 
-        return $fileIdentifier;
+        return $this->moveFile($fileIdentifier, $newFileIdentifier);
     }
 
     /**
