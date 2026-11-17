@@ -173,19 +173,16 @@ class ExistenceCacheTransactionTest extends AbstractFunctionalTestCase
     }
 
     /**
-     * Committed changes are cached as usual, so the tests above aren't passing just
-     * because nothing is cached at all.
+     * Outside a caller's transaction, changes are cached as usual, so the tests above
+     * aren't passing just because nothing is cached at all.
      *
      * @test
      */
-    public function committedOperationIsReflectedInCache(): void
+    public function operationOutsideTransactionIsCached(): void
     {
         $this->insertEntries(self::FIXTURE);
-        $driver = $this->createDriver();
 
-        $this->getEntryConnection()->beginTransaction();
-        $driver->createFile('new.txt', '/');
-        $this->getEntryConnection()->commit();
+        $this->createDriver()->createFile('new.txt', '/');
 
         // Remove the row behind the cache's back: only a cache hit still reports it.
         $this->getEntryConnection()->delete(self::ENTRY_TABLE, ['entry_id' => '/new.txt']);

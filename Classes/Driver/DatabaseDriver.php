@@ -1281,7 +1281,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         $identifier = '/' . ltrim($identifier, '/');
 
-        if ($this->hasExistenceCacheEntry($identifier)) {
+        // Inside a transaction, the cache may not reflect what the transaction changed.
+        if (!$this->isInTransaction() && $this->hasExistenceCacheEntry($identifier)) {
             return $this->getExistenceCacheEntry($identifier);
         }
 
@@ -1307,7 +1308,23 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     private function setExistenceCacheEntry(string $itemIdentifier, bool $exists): void
     {
+        if ($this->isInTransaction()) {
+            // The change may still be rolled back, and the cache is not necessarily
+            // transactional (e.g. Redis). Drop the entry instead, so the next lookup
+            // outside the transaction caches the committed state.
+            $this->getExistenceCache()->remove($this->getCacheKey($itemIdentifier));
+            return;
+        }
         $this->getExistenceCache()->set($this->getCacheKey($itemIdentifier), $exists);
+    }
+
+    /**
+     * Whether a transaction is open. The driver calls this after committing its own
+     * transaction, so an open one belongs to a caller and may still be rolled back.
+     */
+    private function isInTransaction(): bool
+    {
+        return $this->getDatabaseConnection()->isTransactionActive();
     }
 
     /**
