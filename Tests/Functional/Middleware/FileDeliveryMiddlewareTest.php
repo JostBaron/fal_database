@@ -12,6 +12,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 class FileDeliveryMiddlewareTest extends AbstractFunctionalTestCase
@@ -61,7 +62,10 @@ class FileDeliveryMiddlewareTest extends AbstractFunctionalTestCase
 
         self::assertSame(200, $response->getStatusCode());
         self::assertSame('image/png', $response->getHeaderLine('Content-Type'));
-        self::assertSame('inline; filename="image.png"', $response->getHeaderLine('Content-Disposition'));
+        self::assertSame(
+            'inline; filename="image.png"; filename*=UTF-8\'\'image.png',
+            $response->getHeaderLine('Content-Disposition')
+        );
         self::assertSame(self::pngContents(), (string)$response->getBody());
     }
 
@@ -150,6 +154,24 @@ class FileDeliveryMiddlewareTest extends AbstractFunctionalTestCase
     }
 
     /**
+     * TYPO3 never hands out the public URL of a non-public storage; the endpoint must
+     * not make its files public anyway.
+     *
+     * @test
+     */
+    public function doesNotDeliverFilesFromNonPublicDatabaseStorages(): void
+    {
+        $this->getConnectionPool()->getConnectionForTable('sys_file_storage')
+            ->update('sys_file_storage', ['is_public' => 0], ['uid' => self::DATABASE_STORAGE_UID]);
+        GeneralUtility::makeInstance(StorageRepository::class)->flush();
+
+        $response = $this->process('GET', ['eID' => 'fal_database_download', 'id' => '1:/image.png']);
+
+        self::assertSame(404, $response->getStatusCode());
+        self::assertSame('', (string)$response->getBody());
+    }
+
+    /**
      * Storage 0 is TYPO3's fallback storage, which maps the whole public directory.
      * TYPO3 itself refuses access to PHP files there; the endpoint must turn that into
      * a 404 instead of an unhandled exception.
@@ -183,6 +205,23 @@ class FileDeliveryMiddlewareTest extends AbstractFunctionalTestCase
             '/^inline; filename="(?:[^"\\\\]|\\\\.)*"(?:;.*)?$/',
             $response->getHeaderLine('Content-Disposition'),
             'The filename must be a valid quoted string.'
+        );
+    }
+
+    /**
+     * @test
+     */
+    public function contentDispositionContainsExactUtf8Filename(): void
+    {
+        $storage = $this->getStorage(self::DATABASE_STORAGE_UID);
+        $storage->addFile($this->createLocalFile('x'), $storage->getRootLevelFolder(), 'Bäckerei.txt');
+
+        $response = $this->process('GET', ['eID' => 'fal_database_download', 'id' => '1:/Bäckerei.txt']);
+
+        self::assertSame(200, $response->getStatusCode());
+        self::assertStringContainsString(
+            "filename*=UTF-8''B%C3%A4ckerei.txt",
+            $response->getHeaderLine('Content-Disposition')
         );
     }
 
