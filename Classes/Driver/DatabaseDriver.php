@@ -332,24 +332,20 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             return false;
         }
 
+        // The identifiers are only needed to update the existence cache afterwards.
         $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
-        $executedStatement = $queryBuilder
-            ->select(self::COLUMNTYPE_ENTRY_ID)
+        $entryIdentifiersToDelete = $queryBuilder
+            ->select(self::COLUMNNAME_ENTRY_ID)
             ->from(self::TABLENAME)
             ->where($this->getConditionForAllSubEntries($queryBuilder, $folderIdentifier, true))
-            ->execute();
+            ->execute()
+            ->fetchFirstColumn();
 
-        $entryIdentifiersToDelete = [];
-        while (null !== ($entryIdentifier = $executedStatement->fetchOne())) {
-            $entryIdentifiersToDelete[] = $entryIdentifier;
-            $this->getDatabaseConnection()->delete(
-                self::TABLENAME,
-                [
-                    self::COLUMNTYPE_ENTRY_ID => $entryIdentifier,
-                ],
-                static::getColumnTypes()
-            );
-        }
+        $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
+        $queryBuilder
+            ->delete(self::TABLENAME)
+            ->where($this->getConditionForAllSubEntries($queryBuilder, $folderIdentifier, true))
+            ->execute();
         $this->getDatabaseConnection()->commit();
 
         foreach ($entryIdentifiersToDelete as $entryIdentifierToDelete) {
@@ -389,12 +385,12 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     public function isFolderEmpty($folderIdentifier): bool
     {
         $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
-        $numberFolderEntriesExcludingSelf = $queryBuilder
+        $numberFolderEntriesExcludingSelf = (int)$queryBuilder
             ->count('*')
             ->from(self::TABLENAME)
             ->where($this->getConditionForAllSubEntries($queryBuilder, $folderIdentifier))
             ->execute()
-        ;
+            ->fetchOne();
 
         return 0 === $numberFolderEntriesExcludingSelf;
     }
