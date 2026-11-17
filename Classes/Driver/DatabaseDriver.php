@@ -554,7 +554,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        if ($this->fileExistsInFolder($targetFolderIdentifier, $fileName)) {
+        if ($this->fileExistsInFolder($fileName, $targetFolderIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
                 sprintf(
