@@ -501,6 +501,44 @@ class DatabaseDriverTest extends AbstractFunctionalTestCase
     }
 
     /**
+     * The driver reports a case-sensitive file system.
+     *
+     * @test
+     */
+    public function entriesDifferingOnlyInCaseAreDistinct(): void
+    {
+        self::assertTrue($this->subject->isCaseSensitiveFileSystem());
+        $this->subject->createFile('a.txt', '/');
+        $this->subject->createFile('A.txt', '/');
+        $this->subject->setFileContents('/a.txt', 'lower');
+        $this->subject->setFileContents('/A.txt', 'upper');
+
+        self::assertSame('lower', $this->subject->getFileContents('/a.txt'));
+        self::assertSame('upper', $this->subject->getFileContents('/A.txt'));
+        self::assertFalse($this->subject->fileExists('/b.txt'));
+        self::assertFalse($this->subject->fileExists('/B.TXT'));
+    }
+
+    /**
+     * @test
+     */
+    public function folderListingsAndDeletesAreCaseSensitive(): void
+    {
+        $this->insertEntries([
+            '/a/' => null,
+            '/a/lower.txt' => 'l',
+            '/A/' => null,
+            '/A/upper.txt' => 'u',
+        ]);
+
+        self::assertSameIdentifiers(['/a/lower.txt'], $this->subject->getFilesInFolder('/a/', 0, 0, true));
+
+        $this->subject->deleteFolder('/a/', true);
+
+        self::assertSame(['/', '/A/', '/A/upper.txt'], $this->getEntryIdentifiers());
+    }
+
+    /**
      * @test
      */
     public function deletingFolderDoesNotDeleteEntriesOfSimilarlyNamedFolders(): void

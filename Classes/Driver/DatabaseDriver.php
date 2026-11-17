@@ -6,6 +6,7 @@ namespace Jbaron\FalDatabase\Driver;
 use Doctrine\DBAL\ConnectionException;
 use Doctrine\DBAL\Driver\Exception;
 use Doctrine\DBAL\Driver\ResultStatement;
+use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Query\Expression\CompositeExpression;
 use Doctrine\DBAL\Types\Types;
 use InvalidArgumentException;
@@ -332,20 +333,23 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             return false;
         }
 
-        // The identifiers are only needed to update the existence cache afterwards.
-        $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
-        $entryIdentifiersToDelete = $queryBuilder
-            ->select(self::COLUMNNAME_ENTRY_ID)
-            ->from(self::TABLENAME)
-            ->where($this->getConditionForAllSubEntries($queryBuilder, $folderIdentifier, true))
-            ->execute()
-            ->fetchFirstColumn();
-
-        $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
-        $queryBuilder
-            ->delete(self::TABLENAME)
-            ->where($this->getConditionForAllSubEntries($queryBuilder, $folderIdentifier, true))
-            ->execute();
+        $entryIdentifiersToDelete = $this->getSubEntryIdentifiers($folderIdentifier, true);
+        foreach (array_chunk($entryIdentifiersToDelete, 500) as $chunk) {
+            $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
+            $queryBuilder
+                ->delete(self::TABLENAME)
+                ->where(
+                    $queryBuilder->expr()->eq(
+                        self::COLUMNNAME_STORAGE,
+                        $queryBuilder->createNamedParameter($this->storageUid, ParameterType::INTEGER)
+                    ),
+                    $queryBuilder->expr()->in(
+                        self::COLUMNNAME_ENTRY_ID,
+                        $queryBuilder->createNamedParameter($chunk, Connection::PARAM_STR_ARRAY)
+                    )
+                )
+                ->execute();
+        }
         $this->getDatabaseConnection()->commit();
 
         foreach ($entryIdentifiersToDelete as $entryIdentifierToDelete) {
@@ -384,15 +388,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
     public function isFolderEmpty($folderIdentifier): bool
     {
-        $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
-        $numberFolderEntriesExcludingSelf = (int)$queryBuilder
-            ->count('*')
-            ->from(self::TABLENAME)
-            ->where($this->getConditionForAllSubEntries($queryBuilder, $folderIdentifier))
-            ->execute()
-            ->fetchOne();
-
-        return 0 === $numberFolderEntriesExcludingSelf;
+        return [] === $this->getSubEntryIdentifiers($folderIdentifier, false);
     }
 
     /**
@@ -832,8 +828,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $identifierMap = [];
         while (false !== ($entryId = $executedQuery->fetchOne())) {
 
-            // If for some reason the fetched identifier does not begin with the folder identifier, ignore it.
-            if (!GeneralUtility::isFirstPartOfStr($entryId, $sourceFolderIdentifier)) {
+            if (!$this->isWithinFolder($entryId, $sourceFolderIdentifier)) {
                 continue;
             }
 
@@ -923,6 +918,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $dataToInsert = [];
         while (false !== ($row = $executedStatement->fetchAssociative())) {
             $oldIdentifier = $row[self::COLUMNNAME_ENTRY_ID];
+            if (!$this->isWithinFolder($oldIdentifier, $sourceFolderIdentifier)) {
+                continue;
+            }
             $newIdentifier = $copiedFolderIdentifier . substr($oldIdentifier, strlen($sourceFolderIdentifier));
 
             $dataToInsert[] = [
@@ -1561,6 +1559,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $entries = [];
         $executedStatement = $queryBuilder->execute();
         while (false !== ($entryId = $executedStatement->fetchOne())) {
+            if (!$this->isWithinFolder($entryId, $folderIdentifier)) {
+                continue;
+            }
             $identifierPartAfterFolderId = substr($entryId, strlen($folderIdentifier));
             $this->logger->debug(
                 'Got entry',
@@ -1620,6 +1621,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return '/' === substr($identifier, -1);
     }
 
+    /**
+     * Narrows a query down to the entries of a folder. NOT exact: TYPO3 compares
+     * case-insensitively on PostgreSQL (ILIKE), and so does MySQL's default collation.
+     * Filter the results with isWithinFolder().
+     */
     private function getConditionForAllSubEntries(
         QueryBuilder $queryBuilder,
         string $folderIdentifier,
@@ -1632,7 +1638,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             ),
             $queryBuilder->expr()->like(
                 self::COLUMNNAME_ENTRY_ID,
-                $queryBuilder->expr()->literal($folderIdentifier . '%')
+                $queryBuilder->expr()->literal($queryBuilder->escapeLikeWildcards($folderIdentifier) . '%')
             )
         );
         if (!$includeFolder) {
@@ -1646,6 +1652,36 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
 
         return $expression;
+    }
+
+    /**
+     * Exact, case-sensitive check whether an entry is the folder itself or inside it.
+     */
+    private function isWithinFolder(string $entryIdentifier, string $folderIdentifier): bool
+    {
+        return 0 === strncmp($entryIdentifier, $folderIdentifier, strlen($folderIdentifier));
+    }
+
+    /**
+     * @return string[] Identifiers of all entries below the folder, at any depth.
+     */
+    private function getSubEntryIdentifiers(string $folderIdentifier, bool $includeFolder): array
+    {
+        $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
+        $candidates = $queryBuilder
+            ->select(self::COLUMNNAME_ENTRY_ID)
+            ->from(self::TABLENAME)
+            ->where($this->getConditionForAllSubEntries($queryBuilder, $folderIdentifier, $includeFolder))
+            ->execute()
+            ->fetchFirstColumn();
+
+        return array_values(array_filter(
+            $candidates,
+            function (string $entryIdentifier) use ($folderIdentifier, $includeFolder): bool {
+                return $this->isWithinFolder($entryIdentifier, $folderIdentifier)
+                    && ($includeFolder || $entryIdentifier !== $folderIdentifier);
+            }
+        ));
     }
 
     /**
