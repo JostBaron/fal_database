@@ -930,7 +930,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             ];
         }
 
-        $numberInserted = $this->getDatabaseConnection()->bulkInsert(
+        // An empty folder has nothing to copy but the folder itself, created above.
+        $numberInserted = [] === $dataToInsert ? 0 : $this->getDatabaseConnection()->bulkInsert(
             self::TABLENAME,
             $dataToInsert,
             self::COLUMNNAMES,
