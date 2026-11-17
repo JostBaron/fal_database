@@ -10,6 +10,9 @@ $GLOBALS['TYPO3_CONF_VARS']['SYS']['fal']['registeredDrivers'][\Jbaron\FalDataba
     'flexFormDS' => 'FILE:EXT:fal_database/Configuration/FlexForm/DriverFlexForm.xml',
 ];
 
-if (!\is_array($GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['tx_jbaron_faldatabase_existencecache'])) {
-    $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']['tx_jbaron_faldatabase_existencecache'] = [];
+if (!array_key_exists(
+    \Jbaron\FalDatabase\Driver\DatabaseDriver::CACHE_EXISTENCE_NAME,
+    $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations']
+)) {
+    $GLOBALS['TYPO3_CONF_VARS']['SYS']['caching']['cacheConfigurations'][\Jbaron\FalDatabase\Driver\DatabaseDriver::CACHE_EXISTENCE_NAME] = [];
 }
