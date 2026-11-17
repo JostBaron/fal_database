@@ -82,10 +82,14 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     private const COLUMNTYPE_STORAGE = Types::INTEGER;
     private const COLUMNTYPE_DATA = Types::BLOB;
 
+    /**
+     * Keyed by column name: Doctrine applies positional types in parameter order,
+     * which for UPDATE and DELETE is not the column order.
+     */
     private const COLUMNTYPES = [
-        self::COLUMNTYPE_ENTRY_ID,
-        self::COLUMNTYPE_STORAGE,
-        self::COLUMNTYPE_DATA,
+        self::COLUMNNAME_ENTRY_ID => self::COLUMNTYPE_ENTRY_ID,
+        self::COLUMNNAME_STORAGE => self::COLUMNTYPE_STORAGE,
+        self::COLUMNNAME_DATA => self::COLUMNTYPE_DATA,
     ];
 
     /**
@@ -659,6 +663,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function replaceFile($fileIdentifier, $localFilePath): bool
     {
+        $newContents = $this->getBlobDataFromLocalFile($localFilePath);
+
         $this->getDatabaseConnection()->beginTransaction();
         if (!$this->fileExists($fileIdentifier)) {
             $this->getDatabaseConnection()->rollBack();
@@ -674,7 +680,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $this->getDatabaseConnection()->update(
             self::TABLENAME,
             [
-                self::COLUMNNAME_DATA       => $this->getBlobDataFromLocalFile($localFilePath),
+                self::COLUMNNAME_DATA       => $newContents,
             ],
             [
                 self::COLUMNNAME_ENTRY_ID   => $fileIdentifier,
@@ -985,7 +991,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        $numberRowsChanged = $this->getDatabaseConnection()->update(
+        // Not checking the number of changed rows: MySQL doesn't count rows whose
+        // contents are unchanged. A failed update throws.
+        $this->getDatabaseConnection()->update(
             self::TABLENAME,
             [
                 self::COLUMNNAME_DATA => $contents,
@@ -996,7 +1004,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             static::getColumnTypes()
         );
 
-        return 1 === $numberRowsChanged ? strlen($contents) : 0;
+        return strlen($contents);
     }
 
     /**
@@ -1396,13 +1404,20 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         return static::COLUMNTYPES;
     }
 
-    private function getBlobDataFromLocalFile(string $localFilePath)
+    /**
+     * @throws FileOperationErrorException
+     */
+    private function getBlobDataFromLocalFile(string $localFilePath): string
     {
-        if (!is_readable($localFilePath)) {
-            return null;
+        $contents = is_readable($localFilePath) ? file_get_contents($localFilePath) : false;
+        if (false === $contents) {
+            throw new FileOperationErrorException(
+                sprintf('Cannot read local file "%s".', $localFilePath),
+                1794957459
+            );
         }
 
-        return file_get_contents($localFilePath);
+        return $contents;
     }
 
     /**

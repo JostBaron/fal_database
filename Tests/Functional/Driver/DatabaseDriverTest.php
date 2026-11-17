@@ -746,6 +746,22 @@ class DatabaseDriverTest extends AbstractFunctionalTestCase
     /**
      * @test
      */
+    public function replaceFileWithUnreadableLocalFileThrowsAndKeepsContents(): void
+    {
+        $this->insertEntries(['/a.txt' => 'old']);
+
+        try {
+            $this->subject->replaceFile('/a.txt', '/does/not/exist.txt');
+            self::fail('Expected an exception.');
+        } catch (FileOperationErrorException $exception) {
+            // expected
+        }
+        self::assertSame('old', $this->getEntryData('/a.txt'));
+    }
+
+    /**
+     * @test
+     */
     public function replaceFileThrowsForMissingFile(): void
     {
         $this->expectException(FileOperationErrorException::class);
