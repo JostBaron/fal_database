@@ -572,6 +572,24 @@ class DatabaseDriverTest extends AbstractFunctionalTestCase
     /**
      * @test
      */
+    public function nameFilterCallbacksGetNameIdentifierAndParentIdentifier(): void
+    {
+        $this->insertEntries(['/root.txt' => 'r', '/a/' => null, '/a/x.txt' => 'x']);
+        $calls = [];
+        $filter = static function (string $name, string $identifier, string $parentIdentifier) use (&$calls): int {
+            $calls[$identifier] = [$name, $parentIdentifier];
+            return 1;
+        };
+
+        $this->subject->getFilesInFolder('/', 0, 0, true, [$filter]);
+
+        ksort($calls);
+        self::assertSame(['/a/x.txt' => ['x.txt', '/a/'], '/root.txt' => ['root.txt', '/']], $calls);
+    }
+
+    /**
+     * @test
+     */
     public function getFilesInFolderSortsAndPaginatesFiles(): void
     {
         $this->insertEntries([

@@ -1166,8 +1166,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $sort = '',
         $sortRev = false
     ): array {
-        $allFolderEntries = $this->getFolderEntries(
+        return $this->getFolderEntries(
             $folderIdentifier,
+            true,
             $start,
             $numberOfItems,
             $recursive,
@@ -1175,25 +1176,6 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             $sort,
             $sortRev
         );
-
-        $this->logger->debug('All entries in folder.', ['folder' => $folderIdentifier, 'entries' => $allFolderEntries]);
-
-        $fileFolderEntries = array_filter(
-            $allFolderEntries,
-            function (string $entry): bool
-            {
-                return $this->isFileIdentifier($entry);
-            }
-        );
-        $this->logger->debug(
-            'Only file entries in folder.',
-            [
-                'folder' => $folderIdentifier,
-                'files' => $fileFolderEntries,
-            ]
-        );
-
-        return $fileFolderEntries;
     }
 
     public function getFolderInFolder($folderName, $folderIdentifier): string
@@ -1217,8 +1199,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $sort = '',
         $sortRev = false
     ): array {
-        $allFolderEntries = $this->getFolderEntries(
+        return $this->getFolderEntries(
             $folderIdentifier,
+            false,
             $start,
             $numberOfItems,
             $recursive,
@@ -1226,25 +1209,6 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             $sort,
             $sortRev
         );
-
-        $this->logger->debug('All entries in folder.', ['folder' => $folderIdentifier, 'entries' => $allFolderEntries]);
-
-        $folderFolderEntries = array_filter(
-            $allFolderEntries,
-            function (string $entry): bool
-            {
-                return $this->isFolderIdentifier($entry);
-            }
-        );
-        $this->logger->debug(
-            'Only folder entries in folder.',
-            [
-                'folder' => $folderIdentifier,
-                'folders' => $folderFolderEntries,
-            ]
-        );
-
-        return $folderFolderEntries;
     }
 
     /**
@@ -1523,8 +1487,17 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      * @throws Exception
      * @throws NoSuchCacheException
      */
+    /**
+     * Lists the files or the folders in a folder. Filtering, sorting and pagination
+     * happen in PHP, in this order, as only the result of the filters can be paginated.
+     * Sorting works like in the LocalDriver: natural and case-insensitive by name, or
+     * by extension for "fileext". Other sort fields fall back to the name.
+     *
+     * @return string[] Identifiers, keyed by identifier.
+     */
     private function getFolderEntries(
         $folderIdentifier,
+        bool $files,
         $start = 0,
         $numberOfItems = 0,
         $recursive = false,
@@ -1539,76 +1512,46 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
-        $queryBuilder
-            ->select(self::COLUMNNAME_ENTRY_ID)
-            ->from(self::TABLENAME)
-            ->where(
-                $this->getConditionForAllSubEntries($queryBuilder, $folderIdentifier)
-            );
-        if ($start > 0) {
-            $queryBuilder->setFirstResult($start);
-        }
-        if ($numberOfItems > 0) {
-            $queryBuilder->setMaxResults($numberOfItems);
-        }
-        if ('' !== $sort) {
-            $queryBuilder->orderBy('entry_id', $sortRev ? 'DESC' : 'ASC');
-        }
-
         $entries = [];
-        $executedStatement = $queryBuilder->execute();
-        while (false !== ($entryId = $executedStatement->fetchOne())) {
-            if (!$this->isWithinFolder($entryId, $folderIdentifier)) {
+        foreach ($this->getSubEntryIdentifiers($folderIdentifier, false) as $entryId) {
+            if ($files !== $this->isFileIdentifier($entryId)) {
                 continue;
             }
-            $identifierPartAfterFolderId = substr($entryId, strlen($folderIdentifier));
-            $this->logger->debug(
-                'Got entry',
-                [
-                    'id' => $entryId,
-                    'folderId' => $folderIdentifier,
-                    'partAfterFolderId' => $identifierPartAfterFolderId,
-                ]
-            );
 
             // Skip entries which are in subfolders if entries should not be fetched recursively
+            $identifierPartAfterFolderId = substr($entryId, strlen($folderIdentifier));
             $isDirectChildOfFolder = false === strpos(rtrim($identifierPartAfterFolderId, '/'), '/');
             if (!$recursive && !$isDirectChildOfFolder) {
-                $this->logger->debug('Not fetching recursively, and entry is no direct child - skipping');
                 continue;
             }
 
-            $entryFolderIdentifier = rtrim(dirname($entryId)) . '/';
+            $entryFolderIdentifier = rtrim(dirname($entryId), '/') . '/';
             $entryName = trim(basename($entryId), '/');
             foreach ($nameFilterCallbacks as $nameFilterCallback) {
-                $this->logger->debug(
-                    'Checking name filter',
-                    [
-                        'filter' => $nameFilterCallback,
-                        'entryId' => $entryId,
-                        'folderId' => $entryFolderIdentifier,
-                        'name' => $entryName,
-                    ]
-                );
                 if (-1 === $nameFilterCallback($entryName, $entryId, $entryFolderIdentifier, [], $this)) {
-                    $this->logger->debug(
-                        'Filtering entry out.',
-                        [
-                            'filter' => $nameFilterCallback,
-                            'entryId' => $entryId,
-                            'folderId' => $entryFolderIdentifier,
-                            'name' => $entryName,
-                        ]
-                    );
                     continue 2;
                 }
             }
 
-            $entries[] = $entryId;
+            $sortingKey = 'fileext' === $sort ? pathinfo($entryName, PATHINFO_EXTENSION) : $entryName;
+            $entries[] = ['sortingKey' => $sortingKey, 'identifier' => $entryId];
         }
 
-        return $entries;
+        usort(
+            $entries,
+            static function (array $a, array $b): int {
+                return strnatcasecmp($a['sortingKey'], $b['sortingKey'])
+                    ?: strcmp($a['identifier'], $b['identifier']);
+            }
+        );
+        if ($sortRev) {
+            $entries = array_reverse($entries);
+        }
+
+        $entries = array_slice($entries, max(0, (int)$start), $numberOfItems > 0 ? (int)$numberOfItems : null);
+        $identifiers = array_column($entries, 'identifier');
+
+        return array_combine($identifiers, $identifiers) ?: [];
     }
 
     private function isFileIdentifier(string $identifier): bool
