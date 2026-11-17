@@ -7,6 +7,7 @@ namespace Jbaron\FalDatabase\Tests\Functional\Service;
 use Jbaron\FalDatabase\Service\MigrationService;
 use Jbaron\FalDatabase\Tests\Functional\AbstractFunctionalTestCase;
 use TYPO3\CMS\Core\Core\Environment;
+use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
 class MigrationServiceTest extends AbstractFunctionalTestCase
@@ -56,6 +57,7 @@ class MigrationServiceTest extends AbstractFunctionalTestCase
         $uid = $this->createIndexedSourceFile('sub/b.bin', self::binaryContents());
 
         $this->getSubject()->migrateFolderToDatabaseStorage(self::LOCAL_STORAGE_UID, self::DATABASE_STORAGE_UID);
+        $this->simulateNewRequest();
 
         $file = $this->getStorage(self::DATABASE_STORAGE_UID)->getFile('/sub/b.bin');
         self::assertSame($uid, $file->getUid());
@@ -82,6 +84,19 @@ class MigrationServiceTest extends AbstractFunctionalTestCase
         self::assertSame(['/', '/target/', '/target/moved.txt'], $this->getEntryIdentifiers());
         $this->assertSysFileRow($movedUid, '/target/moved.txt', '/target/');
         self::assertFileExists($this->sourcePath . 'stays.txt');
+    }
+
+    /**
+     * @test
+     */
+    public function migratedFileIsFoundEvenIfItsAbsenceWasCachedBefore(): void
+    {
+        $this->createIndexedSourceFile('a.txt', 'text');
+        self::assertFalse($this->createDriver()->fileExists('/a.txt'));
+
+        $this->getSubject()->migrateFolderToDatabaseStorage(self::LOCAL_STORAGE_UID, self::DATABASE_STORAGE_UID);
+
+        self::assertTrue($this->createDriver()->fileExists('/a.txt'));
     }
 
     /**
@@ -119,6 +134,18 @@ class MigrationServiceTest extends AbstractFunctionalTestCase
         }
         self::assertFileExists($this->sourcePath . 'good.txt');
         self::assertFileExists($this->sourcePath . 'taken.txt');
+    }
+
+    /**
+     * ResourceFactory caches File objects per UID for the whole request, so in this
+     * request the migrated files still point to their old storage.
+     */
+    private function simulateNewRequest(): void
+    {
+        $resourceFactory = GeneralUtility::makeInstance(ResourceFactory::class);
+        $property = new \ReflectionProperty($resourceFactory, 'fileInstances');
+        $property->setAccessible(true);
+        $property->setValue($resourceFactory, []);
     }
 
     private function getSubject(): MigrationService

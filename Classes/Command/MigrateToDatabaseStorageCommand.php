@@ -10,9 +10,6 @@ use Symfony\Component\Console\Input\InputArgument;
 use Symfony\Component\Console\Input\InputInterface;
 use Symfony\Component\Console\Input\InputOption;
 use Symfony\Component\Console\Output\OutputInterface;
-use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Extbase\Object\ObjectManager;
-use TYPO3\CMS\Extbase\Object\ObjectManagerInterface;
 
 /**
  * Command for migrating files and folders between FAL storages.
@@ -82,10 +79,6 @@ class MigrateToDatabaseStorageCommand extends Command
      */
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
-        /** @var ObjectManagerInterface $objectManager */
-        $objectManager = GeneralUtility::makeInstance(ObjectManager::class);
-        $this->migrationService = $objectManager->get(MigrationService::class);
-
         $errorMessages = $this->migrationService->migrateFolderToDatabaseStorage(
             (int)$input->getArgument(self::ARGUMENT_NAME_STORAGEFROM),
             (int)$input->getArgument(self::ARGUMENT_NAME_STORAGETO),

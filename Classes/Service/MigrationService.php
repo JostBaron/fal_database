@@ -4,22 +4,25 @@ declare(strict_types=1);
 
 namespace Jbaron\FalDatabase\Service;
 
+use Doctrine\DBAL\ParameterType;
+use Jbaron\FalDatabase\Driver\DatabaseDriver;
 use Psr\Log\LoggerInterface;
+use TYPO3\CMS\Core\Cache\CacheManager;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Log\LogManager;
 use TYPO3\CMS\Core\Resource\Driver\DriverInterface;
+use TYPO3\CMS\Core\Resource\Driver\DriverRegistry;
 use TYPO3\CMS\Core\Resource\Driver\LocalDriver;
 use TYPO3\CMS\Core\Resource\Exception\ExistingTargetFolderException;
 use TYPO3\CMS\Core\Resource\Exception\InsufficientFolderAccessPermissionsException;
 use TYPO3\CMS\Core\Resource\Exception\InsufficientFolderWritePermissionsException;
 use TYPO3\CMS\Core\Resource\Folder;
-use TYPO3\CMS\Core\Resource\ResourceFactory;
 use TYPO3\CMS\Core\Resource\ResourceStorage;
 use TYPO3\CMS\Core\Resource\StorageRepository;
+use TYPO3\CMS\Core\Service\FlexFormService;
 use TYPO3\CMS\Core\SingletonInterface;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
-use TYPO3\CMS\Extbase\Object\ObjectManager;
 
 class MigrationService implements SingletonInterface
 {
@@ -97,7 +100,6 @@ class MigrationService implements SingletonInterface
         }
         if (null === $targetFolderIdentifier) {
             $targetFolderIdentifier = $targetStorage->getRootLevelFolder(false)->getIdentifier();
-            $errorMessages[] = 'The target folder does not exist.';
         }
 
         try {
@@ -144,6 +146,12 @@ class MigrationService implements SingletonInterface
         }
 
         $this->databaseConnection->commit();
+
+        // The entries were inserted behind the database driver's back, so its existence
+        // cache may still claim they don't exist.
+        GeneralUtility::makeInstance(CacheManager::class)
+            ->getCache(DatabaseDriver::CACHE_EXISTENCE_NAME)
+            ->flush();
 
         $this->logger->info('Deleting files from source storage', ['oldFileIds' => $this->filesToDeleteInDriver]);
         foreach ($this->filesToDeleteInDriver as $fileId) {
@@ -261,6 +269,12 @@ class MigrationService implements SingletonInterface
                         'entry_id'      => $newFileIdentifier,
                         'storage'       => $targetStorageId,
                         'data'          => $fileContents,
+                    ],
+                    [
+                        'entry_id'      => ParameterType::STRING,
+                        'storage'       => ParameterType::INTEGER,
+                        // Binary data: without this, PostgreSQL rejects bytes that aren't valid UTF-8.
+                        'data'          => ParameterType::LARGE_OBJECT,
                     ]
                 );
 
@@ -278,8 +292,9 @@ class MigrationService implements SingletonInterface
                         'tstamp' => \time(),
                         'storage' => $targetStorageId,
                         'identifier' => $newFileIdentifier,
-                        'identifier_hash' => \hash('sha1', $newFileIdentifier),
-                        'folder_hash' => \hash('sha1', $targetFolderIdentifier),
+                        // Hashed like TYPO3 does, e.g. without the folder's trailing slash.
+                        'identifier_hash' => $targetFolder->getStorage()->hashFileIdentifier($newFileIdentifier),
+                        'folder_hash' => $targetFolder->getStorage()->hashFileIdentifier($targetFolderIdentifier),
                     ],
                     [
                         'uid' => $fileInFolder->getUid(),
@@ -328,9 +343,6 @@ class MigrationService implements SingletonInterface
 
     private function getSourceStorageDriverInstance(ResourceStorage $sourceStorage): DriverInterface
     {
-        $objectManager = GeneralUtility::makeInstance(ObjectManager::class);
-        /** @var ResourceFactory $resourceFactory */
-        $resourceFactory = $objectManager->get(ResourceFactory::class);
         $storageRow = $this->databaseConnection->select(
             [
                 'driver',
@@ -340,7 +352,7 @@ class MigrationService implements SingletonInterface
             [
                 'uid' => $sourceStorage->getUid(),
             ]
-        )->fetch();
+        )->fetchAssociative();
 
         if (false === $storageRow) {
             throw new \RuntimeException(
@@ -353,9 +365,10 @@ class MigrationService implements SingletonInterface
         }
 
         $sourceDriverKey = $storageRow['driver'];
-        $sourceDriverConfiguration = $resourceFactory->convertFlexFormDataToConfigurationArray(
-            $storageRow['configuration']
-        );
+        $sourceDriverConfiguration = $storageRow['configuration']
+            ? GeneralUtility::makeInstance(FlexFormService::class)
+                ->convertFlexFormContentToArray($storageRow['configuration'])
+            : [];
 
         switch ($sourceDriverKey) {
             case 'Local':
@@ -374,10 +387,11 @@ class MigrationService implements SingletonInterface
             // Add checks for other drivers here later.
         }
 
-        $sourceDriver = $resourceFactory->getDriverObject(
-            $sourceDriverKey,
-            $sourceDriverConfiguration
-        );
+        // Instantiated like StorageRepository::getDriverObject() does, which is not public.
+        $sourceDriverClass = GeneralUtility::makeInstance(DriverRegistry::class)->getDriverClass($sourceDriverKey);
+        /** @var DriverInterface $sourceDriver */
+        $sourceDriver = GeneralUtility::makeInstance($sourceDriverClass, $sourceDriverConfiguration);
+        $sourceDriver->setStorageUid($sourceStorage->getUid());
         $sourceDriver->processConfiguration();
         $sourceDriver->initialize();
 
