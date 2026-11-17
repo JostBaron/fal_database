@@ -900,8 +900,6 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             $oldIdentifier = $row[self::COLUMNNAME_ENTRY_ID];
             $newIdentifier = $copiedFolderIdentifier . substr($oldIdentifier, strlen($sourceFolderIdentifier));
 
-            $this->getExistenceCache()->set($newIdentifier, true);
-
             $dataToInsert[] = [
                 self::COLUMNNAME_ENTRY_ID   => $newIdentifier,
                 self::COLUMNNAME_STORAGE    => $this->storageUid,
@@ -923,9 +921,9 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
 
         $this->getDatabaseConnection()->commit();
 
-        $this->getExistenceCache()->set($copiedFolderIdentifier, true);
+        $this->setExistenceCacheEntry($copiedFolderIdentifier, true);
         foreach ($dataToInsert as $item) {
-            $this->getExistenceCache()->set($item[self::COLUMNNAME_ENTRY_ID], true);
+            $this->setExistenceCacheEntry($item[self::COLUMNNAME_ENTRY_ID], true);
         }
 
         return true;
@@ -1292,6 +1290,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             self::TABLENAME,
             [
                 self::COLUMNNAME_ENTRY_ID     => $identifier,
+                self::COLUMNNAME_STORAGE      => $this->storageUid,
             ]
         );
 
@@ -1347,6 +1346,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             ],
             static::getColumnTypes()
         );
+        $this->setExistenceCacheEntry(self::ROOT_FOLDER_ID, true);
     }
 
     /**
