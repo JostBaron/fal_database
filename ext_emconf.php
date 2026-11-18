@@ -7,10 +7,11 @@ $EM_CONF[$_EXTKEY] = [
     'author_email' => 'j.baron@netzkoenig.de',
     'author_company' => 'Mein Bauernhof GbR',
     'state' => 'alpha',
-    'version' => '0.0.1',
+    'version' => '1.3.0',
     'constraints' => [
         'depends' => [
-            'typo3' => '8.7.0-10.4.999',
-        ]
-    ]
+            'php' => '7.4.0-8.99.99',
+            'typo3' => '10.4.0-11.5.99',
+        ],
+    ],
 ];

@@ -34,7 +34,7 @@ vendor/bin/typo3 faldatabase:migrate-to-database-storage <storage-id-from> <stor
 
 ## Supported versions
 
-`composer.json` is authoritative: TYPO3 `^10.4 || ^11.5`, PHP `^7.4 || ^8.x`. `ext_emconf.php` is stale (it says TYPO3 8.7–10.4). Despite the PHP 7.4 claim, `DatabaseDriver::isWithin()` calls `str_starts_with()`, which only exists from PHP 8.0. Either keep the code 7.4-compatible or raise the constraint.
+TYPO3 `^10.4 || ^11.5`, PHP `^7.4 || ^8.x`, in `composer.json` and mirrored in `ext_emconf.php`. Keep both in sync. Keep the code PHP 7.4-compatible: no PHP 8 syntax or functions such as `str_starts_with()`, even though the Symfony polyfill TYPO3 pulls in would usually provide them. `Build/Scripts/runTests.sh -p 7.4 -s lint` checks the syntax. The test suite itself only runs on PHP 8.1+, as the locked dev dependencies need it.
 
 ## Architecture
 
