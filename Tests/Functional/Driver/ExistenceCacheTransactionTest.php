@@ -21,7 +21,7 @@ class ExistenceCacheTransactionTest extends AbstractFunctionalTestCase
     /**
      * @var array<string, mixed>
      */
-    protected $configurationToUseInTestInstance = [
+    protected array $configurationToUseInTestInstance = [
         'SYS' => [
             'caching' => [
                 'cacheConfigurations' => [

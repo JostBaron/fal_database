@@ -65,6 +65,12 @@ class DatabaseStorageTest extends AbstractFunctionalTestCase
      */
     public function contentsAndPublicUrlOfAddedFileCanBeRetrieved(): void
     {
+        // TYPO3 12 only accepts allow-listed extensions, which "bin" isn't, and rejects files
+        // whose detected MIME type doesn't match the extension: finfo takes these bytes for an
+        // image. TYPO3 11 has neither check.
+        $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['security.system.enforceAllowedFileExtensions'] = false;
+        $GLOBALS['TYPO3_CONF_VARS']['SYS']['features']['security.system.enforceFileExtensionMimeTypeConsistency'] = false;
+
         $file = $this->storage->addFile(
             $this->createLocalFile(self::binaryContents(), 'bin'),
             $this->storage->getRootLevelFolder(),
@@ -89,8 +95,8 @@ class DatabaseStorageTest extends AbstractFunctionalTestCase
     {
         $root = $this->storage->getRootLevelFolder();
         $folder = $root->createFolder('folder');
-        $this->storage->addFile($this->createLocalFile('a'), $folder, 'a.txt');
-        $this->storage->addFile($this->createLocalFile('b'), $folder, 'b.txt');
+        $this->storage->addFile($this->createLocalFile('Text file a'), $folder, 'a.txt');
+        $this->storage->addFile($this->createLocalFile('Text file b'), $folder, 'b.txt');
         $folder->createFolder('sub');
 
         self::assertSame(['a.txt', 'b.txt'], self::getNames($folder->getFiles()));
@@ -104,7 +110,7 @@ class DatabaseStorageTest extends AbstractFunctionalTestCase
      */
     public function renamingFileUpdatesTheIndex(): void
     {
-        $file = $this->storage->addFile($this->createLocalFile('x'), $this->storage->getRootLevelFolder(), 'old.txt');
+        $file = $this->storage->addFile($this->createLocalFile('Text file x'), $this->storage->getRootLevelFolder(), 'old.txt');
 
         $file->rename('new.txt');
 
@@ -112,7 +118,7 @@ class DatabaseStorageTest extends AbstractFunctionalTestCase
             ->select(['identifier'], 'sys_file', ['uid' => $file->getUid()])
             ->fetchAssociative();
         self::assertSame('/new.txt', $row['identifier'] ?? null);
-        self::assertSame('x', $this->storage->getFile('/new.txt')->getContents());
+        self::assertSame('Text file x', $this->storage->getFile('/new.txt')->getContents());
     }
 
     /**
@@ -122,7 +128,7 @@ class DatabaseStorageTest extends AbstractFunctionalTestCase
     {
         $root = $this->storage->getRootLevelFolder();
         $target = $root->createFolder('target');
-        $file = $this->storage->addFile($this->createLocalFile('x'), $root, 'x.txt');
+        $file = $this->storage->addFile($this->createLocalFile('Text file x'), $root, 'x.txt');
 
         $file->moveTo($target);
 
@@ -139,7 +145,7 @@ class DatabaseStorageTest extends AbstractFunctionalTestCase
      */
     public function deletingFileRemovesItsEntry(): void
     {
-        $file = $this->storage->addFile($this->createLocalFile('x'), $this->storage->getRootLevelFolder(), 'x.txt');
+        $file = $this->storage->addFile($this->createLocalFile('Text file x'), $this->storage->getRootLevelFolder(), 'x.txt');
 
         self::assertTrue($file->delete());
 
@@ -153,7 +159,7 @@ class DatabaseStorageTest extends AbstractFunctionalTestCase
     public function deletingFolderRecursivelyRemovesAllEntries(): void
     {
         $folder = $this->storage->getRootLevelFolder()->createFolder('folder');
-        $this->storage->addFile($this->createLocalFile('x'), $folder, 'x.txt');
+        $this->storage->addFile($this->createLocalFile('Text file x'), $folder, 'x.txt');
 
         self::assertTrue($folder->delete(true));
 

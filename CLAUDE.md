@@ -13,18 +13,22 @@ The Mein-Bauernhof sites consume it through Composer. The workspace-level CLAUDE
 Everything runs in Docker through `Build/Scripts/runTests.sh`. PHP runs in TYPO3's `ghcr.io/typo3/core-testing-php81` image, not on the host, which has PHP 8.3 and no `pdo_mysql`. `vendor/`, `public/` and `composer.lock` are gitignored.
 
 ```bash
-Build/Scripts/runTests.sh -s composer -- install       # dev dependencies (typo3/testing-framework, phpunit)
+Build/Scripts/runTests.sh -s composerUpdate -t 11     # dev dependencies for TYPO3 11.5 (-t 12: TYPO3 12.4)
 Build/Scripts/runTests.sh                              # functional tests against PostgreSQL (production DBMS)
 Build/Scripts/runTests.sh -d mariadb                   # ... against MariaDB
 Build/Scripts/runTests.sh -- --filter renameFile       # single test / class; args after -- go to phpunit
 Build/Scripts/runTests.sh -s lint                      # php -l over Classes, Configuration, Tests
 ```
 
+The functional suite runs against whichever TYPO3 version `composerUpdate` installed last, and prints it first. `composerUpdate` constrains the core with `composer update --with`, so `composer.json` stays unchanged. Run the suite on both versions before committing driver changes.
+
 Every run of the functional suite starts a fresh database container on tmpfs, with fsync, doublewrite and binlog switched off. The container and its Docker network are removed when the run ends. The tests are `typo3/testing-framework` functional tests in `Tests/Functional/`, configured by `Build/phpunit/FunctionalTests.xml`. All of them extend `AbstractFunctionalTestCase`, which creates database storage UID 1. It also provides `insertEntries()` and `getEntryIdentifiers()`/`getEntryData()`, which seed and inspect `tx_jbaron_faldatabase_entry` directly, so a test of one driver method doesn't depend on others. There are no unit tests.
 
 `ExistenceCacheTransactionTest` configures `TransientMemoryBackend` for the existence cache on purpose. With TYPO3's default database cache backend, cache writes happen in the same transaction as the data and get rolled back with it, which hides stale-cache bugs that a non-transactional backend like Redis exposes.
 
-Composer 2.9+ blocks installing versions with security advisories by default, and every TYPO3 10.4/11.5 release has some. Whether to allow them for this dev install is Jost's decision. Ask before passing `--no-blocking` or adding a `policy` config.
+Composer 2.9+ blocks installing versions with security advisories by default, and every TYPO3 11.5/12.4 release has some. Jost decided to allow them for the dev install only: `composerUpdate` passes `--no-blocking`. Don't add a `policy` config to `composer.json`.
+
+Test fixtures added through `ResourceStorage` must pass TYPO3 12's resource consistency check: the extension must be on the allow-list (`textfile_ext`/`mediafile_ext`/`miscfile_ext`, enforced in new installations), and the MIME type `finfo` detects must match it. Give `.txt` fixtures a few words of text, since `finfo` reads one-character files as `application/octet-stream`. Tests calling the driver directly aren't checked.
 
 To exercise the code in a real site instead, install this extension in one of the Sites' dev environments. The one CLI entry point is:
 

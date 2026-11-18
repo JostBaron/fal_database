@@ -33,7 +33,7 @@ abstract class AbstractFunctionalTestCase extends FunctionalTestCase
     /**
      * @var string[]
      */
-    protected $testExtensionsToLoad = [
+    protected array $testExtensionsToLoad = [
         'typo3conf/ext/fal_database',
     ];
 

@@ -8,7 +8,9 @@ use Jbaron\FalDatabase\Tests\Functional\AbstractFunctionalTestCase;
 use Jbaron\FalDatabase\Upgrades\EntryTableUpgradeWizard;
 use TYPO3\CMS\Core\Database\Schema\SchemaMigrator;
 use TYPO3\CMS\Core\Database\Schema\SqlReader;
+use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Install\Updates\UpgradeWizardRegistry;
 
 /**
  * Installations created before the schema change have the old entry table: entry_id
@@ -22,9 +24,17 @@ class EntryTableUpgradeWizardTest extends AbstractFunctionalTestCase
      */
     public function upgradeIsRegistered(): void
     {
-        self::assertSame(
+        if ((new Typo3Version())->getMajorVersion() < 12) {
+            self::assertSame(
+                EntryTableUpgradeWizard::class,
+                $GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/install']['update']['falDatabaseEntryTable'] ?? null
+            );
+            return;
+        }
+
+        self::assertInstanceOf(
             EntryTableUpgradeWizard::class,
-            $GLOBALS['TYPO3_CONF_VARS']['SC_OPTIONS']['ext/install']['update']['falDatabaseEntryTable'] ?? null
+            $this->get(UpgradeWizardRegistry::class)->getUpgradeWizard('falDatabaseEntryTable')
         );
     }
 

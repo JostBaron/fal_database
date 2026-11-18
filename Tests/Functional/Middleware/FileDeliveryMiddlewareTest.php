@@ -12,6 +12,7 @@ use Psr\Http\Server\RequestHandlerInterface;
 use TYPO3\CMS\Core\Core\Environment;
 use TYPO3\CMS\Core\Http\Response;
 use TYPO3\CMS\Core\Http\ServerRequest;
+use TYPO3\CMS\Core\Information\Typo3Version;
 use TYPO3\CMS\Core\Resource\StorageRepository;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
 
@@ -180,7 +181,9 @@ class FileDeliveryMiddlewareTest extends AbstractFunctionalTestCase
      */
     public function doesNotDeliverArbitraryFilesThroughTheFallbackStorage(): void
     {
-        $configurationFile = 'typo3conf/LocalConfiguration.php';
+        $configurationFile = (new Typo3Version())->getMajorVersion() < 12
+            ? 'typo3conf/LocalConfiguration.php'
+            : 'typo3conf/system/settings.php';
         self::assertFileExists(Environment::getPublicPath() . '/' . $configurationFile);
 
         $response = $this->process('GET', ['eID' => 'fal_database_download', 'id' => '0:/' . $configurationFile]);
@@ -196,7 +199,7 @@ class FileDeliveryMiddlewareTest extends AbstractFunctionalTestCase
     public function contentDispositionFilenameIsEscaped(): void
     {
         $storage = $this->getStorage(self::DATABASE_STORAGE_UID);
-        $storage->addFile($this->createLocalFile('x'), $storage->getRootLevelFolder(), 'quote".txt');
+        $storage->addFile($this->createLocalFile('Text file x'), $storage->getRootLevelFolder(), 'quote".txt');
 
         $response = $this->process('GET', ['eID' => 'fal_database_download', 'id' => '1:/quote".txt']);
 
@@ -214,7 +217,7 @@ class FileDeliveryMiddlewareTest extends AbstractFunctionalTestCase
     public function contentDispositionContainsExactUtf8Filename(): void
     {
         $storage = $this->getStorage(self::DATABASE_STORAGE_UID);
-        $storage->addFile($this->createLocalFile('x'), $storage->getRootLevelFolder(), 'Bäckerei.txt');
+        $storage->addFile($this->createLocalFile('Text file x'), $storage->getRootLevelFolder(), 'Bäckerei.txt');
 
         $response = $this->process('GET', ['eID' => 'fal_database_download', 'id' => '1:/Bäckerei.txt']);
 
