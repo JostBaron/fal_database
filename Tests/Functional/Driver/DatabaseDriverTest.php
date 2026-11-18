@@ -1012,6 +1012,34 @@ class DatabaseDriverTest extends AbstractFunctionalTestCase
     /**
      * @test
      */
+    public function operationsOnOneDatabaseStorageDoNotTouchSameIdentifierInAnother(): void
+    {
+        $this->createDatabaseStorage(self::SECOND_DATABASE_STORAGE_UID);
+        $other = $this->createDriver(self::SECOND_DATABASE_STORAGE_UID);
+        $other->getRootLevelFolder();
+        $this->insertEntries(['/a.txt' => 'first', '/folder/' => null, '/folder/x.txt' => 'x']);
+        $this->insertEntries(
+            ['/a.txt' => 'second', '/folder/' => null, '/folder/x.txt' => 'x2'],
+            self::SECOND_DATABASE_STORAGE_UID
+        );
+
+        $this->subject->setFileContents('/a.txt', 'changed');
+        $this->subject->renameFile('/a.txt', 'renamed.txt');
+        $this->subject->renameFolder('/folder/', 'moved');
+
+        self::assertSame(['/', '/a.txt', '/folder/', '/folder/x.txt'], $this->getEntryIdentifiers(self::SECOND_DATABASE_STORAGE_UID));
+        self::assertSame('second', $other->getFileContents('/a.txt'));
+
+        $this->subject->deleteFile('/renamed.txt');
+        $this->subject->deleteFolder('/moved/', true);
+
+        self::assertSame(['/', '/a.txt', '/folder/', '/folder/x.txt'], $this->getEntryIdentifiers(self::SECOND_DATABASE_STORAGE_UID));
+        self::assertSame('x2', $other->getFileContents('/folder/x.txt'));
+    }
+
+    /**
+     * @test
+     */
     public function entriesOfOneDatabaseStorageAreInvisibleToAnother(): void
     {
         $this->createDatabaseStorage(self::SECOND_DATABASE_STORAGE_UID);

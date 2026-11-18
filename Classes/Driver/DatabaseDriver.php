@@ -591,6 +591,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                 ],
                 [
                     self::COLUMNNAME_ENTRY_ID   => $fileIdentifier,
+                    self::COLUMNNAME_STORAGE => $this->storageUid,
                 ]
             );
             if (1 !== $numberUpdated) {
@@ -636,6 +637,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                 ],
                 [
                     self::COLUMNNAME_ENTRY_ID   => $fileIdentifier,
+                    self::COLUMNNAME_STORAGE => $this->storageUid,
                 ],
                 static::getColumnTypes()
             );
@@ -667,7 +669,8 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             return $this->getDatabaseConnection()->delete(
                 self::TABLENAME,
                 [
-                    self::COLUMNNAME_ENTRY_ID => $fileIdentifier
+                    self::COLUMNNAME_ENTRY_ID => $fileIdentifier,
+                    self::COLUMNNAME_STORAGE => $this->storageUid,
                 ],
                 static::getColumnTypes()
             );
@@ -768,6 +771,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                     ],
                     [
                         self::COLUMNNAME_ENTRY_ID => $entryId,
+                        self::COLUMNNAME_STORAGE => $this->storageUid,
                     ]
                 );
                 if (1 !== $numberUpdated) {
@@ -932,6 +936,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             self::TABLENAME,
             [
                 self::COLUMNNAME_ENTRY_ID => $fileIdentifier,
+                self::COLUMNNAME_STORAGE => $this->storageUid,
             ]
         );
         $result = $statement->fetchOne();
@@ -971,6 +976,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             ],
             [
                 self::COLUMNNAME_ENTRY_ID => $fileIdentifier,
+                self::COLUMNNAME_STORAGE => $this->storageUid,
             ],
             static::getColumnTypes()
         );
@@ -1320,6 +1326,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             self::TABLENAME,
             [
                 self::COLUMNNAME_ENTRY_ID => $entryIdentifier,
+                self::COLUMNNAME_STORAGE => $this->storageUid,
             ]
         );
 
