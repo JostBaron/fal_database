@@ -209,15 +209,6 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             $parentFolderIdentifier = $this->getRootLevelFolder();
         }
 
-        $this->logger->debug(
-            'Creating folder',
-            [
-                'folderName'    => $newFolderName,
-                'parentFolderIdentifier' => $parentFolderIdentifier,
-                'recursive' => $recursive,
-            ]
-        );
-
         if (!$this->folderExists($parentFolderIdentifier)) {
             throw new FolderDoesNotExistException(
                 sprintf('Parent folder with ID "%s" does not exist', $parentFolderIdentifier),
@@ -241,26 +232,11 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             }
         );
 
-        $this->logger->debug('Parts of path to create.', ['pathParts' => $pathPartsOfFolderToCreate]);
-
-        $this->getDatabaseConnection()->beginTransaction();
-
         $insertData = [];
-        if (!$this->folderExists($this->getRootLevelFolder())) {
-            $this->logger->debug('Root folder does not exist - creating');
-            $insertData[] = [
-                self::COLUMNNAME_ENTRY_ID   => $this->getRootLevelFolder(),
-                self::COLUMNNAME_STORAGE    => $this->storageUid,
-                self::COLUMNNAME_DATA       => null,
-            ];
-        }
-
-        $currentFolderPath = $this->getRootLevelFolder();
+        $currentFolderPath = self::ROOT_FOLDER_ID;
         foreach ($pathPartsOfFolderToCreate as $pathPart) {
             $currentFolderPath .= $pathPart . '/';
-            $this->logger->debug('Checking path.', ['path' => $currentFolderPath]);
             if (!$this->folderExists($currentFolderPath)) {
-                $this->logger->debug('Folder does not exist - adding to insert.', ['path' => $currentFolderPath]);
                 $insertData[] = [
                     self::COLUMNNAME_ENTRY_ID   => $currentFolderPath,
                     self::COLUMNNAME_STORAGE    => $this->storageUid,
@@ -269,23 +245,23 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             }
         }
 
-        if (count($insertData) > 0) {
-            $numberInserted = $this->getDatabaseConnection()->bulkInsert(
-                self::TABLENAME,
-                $insertData,
-                self::COLUMNNAMES,
-                static::getColumnTypes()
-            );
-
-            if (count($insertData) !== $numberInserted) {
-                $this->getDatabaseConnection()->rollBack();
-                throw new FileOperationErrorException(
-                    'Could not insert at least one folder entry.',
-                    1578678583
+        if ([] !== $insertData) {
+            $this->executeInTransaction(function () use ($insertData): void {
+                $numberInserted = $this->getDatabaseConnection()->bulkInsert(
+                    self::TABLENAME,
+                    $insertData,
+                    self::COLUMNNAMES,
+                    static::getColumnTypes()
                 );
-            }
+                if (count($insertData) !== $numberInserted) {
+                    throw new FileOperationErrorException(
+                        'Could not insert at least one folder entry.',
+                        1578678583
+                    );
+                }
+            });
         }
-        $this->getDatabaseConnection()->commit();
+
         foreach ($insertData as $insertDatum) {
             $this->setExistenceCacheEntry($insertDatum[self::COLUMNNAME_ENTRY_ID], true);
         }
@@ -324,33 +300,30 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        $this->logger->debug('Deleting folder', ['folder' => $folderIdentifier]);
-
-        $this->getDatabaseConnection()->beginTransaction();
-
-        if (!$deleteRecursively && !$this->isFolderEmpty($folderIdentifier)) {
-            $this->getDatabaseConnection()->rollBack();
+        $entryIdentifiersToDelete = $this->getSubEntryIdentifiers($folderIdentifier, true);
+        // The folder itself is always among them.
+        if (!$deleteRecursively && count($entryIdentifiersToDelete) > 1) {
             return false;
         }
 
-        $entryIdentifiersToDelete = $this->getSubEntryIdentifiers($folderIdentifier, true);
-        foreach (array_chunk($entryIdentifiersToDelete, 500) as $chunk) {
-            $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
-            $queryBuilder
-                ->delete(self::TABLENAME)
-                ->where(
-                    $queryBuilder->expr()->eq(
-                        self::COLUMNNAME_STORAGE,
-                        $queryBuilder->createNamedParameter($this->storageUid, ParameterType::INTEGER)
-                    ),
-                    $queryBuilder->expr()->in(
-                        self::COLUMNNAME_ENTRY_ID,
-                        $queryBuilder->createNamedParameter($chunk, Connection::PARAM_STR_ARRAY)
+        $this->executeInTransaction(function () use ($entryIdentifiersToDelete): void {
+            foreach (array_chunk($entryIdentifiersToDelete, 500) as $chunk) {
+                $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
+                $queryBuilder
+                    ->delete(self::TABLENAME)
+                    ->where(
+                        $queryBuilder->expr()->eq(
+                            self::COLUMNNAME_STORAGE,
+                            $queryBuilder->createNamedParameter($this->storageUid, ParameterType::INTEGER)
+                        ),
+                        $queryBuilder->expr()->in(
+                            self::COLUMNNAME_ENTRY_ID,
+                            $queryBuilder->createNamedParameter($chunk, Connection::PARAM_STR_ARRAY)
+                        )
                     )
-                )
-                ->execute();
-        }
-        $this->getDatabaseConnection()->commit();
+                    ->execute();
+            }
+        });
 
         foreach ($entryIdentifiersToDelete as $entryIdentifierToDelete) {
             $this->setExistenceCacheEntry($entryIdentifierToDelete, false);
@@ -405,8 +378,6 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             $newFileName = basename($localFilePath);
         }
 
-        $this->getDatabaseConnection()->beginTransaction();
-
         if (!$this->folderExists($targetFolderIdentifier)) {
             throw new FolderDoesNotExistException(
                 sprintf('Folder with ID "%s" to add file to does not exist.', $targetFolderIdentifier),
@@ -418,60 +389,48 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             throw new FileOperationErrorException(
                 sprintf(
                     'There already is a file named "%s" in folder with ID "%s".',
-                    $targetFolderIdentifier,
-                    $newFileName
+                    $newFileName,
+                    $targetFolderIdentifier
                 ),
                 1578465439
             );
         }
 
-        if (!is_readable($localFilePath)) {
+        $fileContents = $this->getBlobDataFromLocalFile($localFilePath);
+
+        if ($removeOriginal && !is_writable($localFilePath)) {
             throw new FileOperationErrorException(
-                sprintf('Cannot read file "%s" to add it to the file storage.', $localFilePath),
+                sprintf(
+                    'Cannot write file "%s" to remove it from the file system after adding it to the storage.',
+                    $localFilePath
+                ),
                 1578465610
-            );
-        }
-        $fileContents = file_get_contents($localFilePath);
-        if (false === $fileContents) {
-            throw new FileOperationErrorException(
-                sprintf('Could not read file "%s" to add it to the file storage.', $localFilePath),
-                1578465693
             );
         }
 
         $newFileId = $targetFolderIdentifier . $this->sanitizeFileName($newFileName);
-        $numberInserted = $this->getDatabaseConnection()->insert(
-            self::TABLENAME,
-            [
-                self::COLUMNNAME_ENTRY_ID   => $newFileId,
-                self::COLUMNNAME_STORAGE    => $this->storageUid,
-                self::COLUMNNAME_DATA       => $fileContents,
-            ],
-            static::getColumnTypes()
-        );
-
-        if (1 !== $numberInserted) {
-            $this->getDatabaseConnection()->rollBack();
-            throw new FileOperationErrorException(
-                sprintf('Failed to insert new file with name "%s" into the database', $newFileName),
-                1578465756
+        $this->executeInTransaction(function () use ($newFileId, $fileContents, $newFileName): void {
+            $numberInserted = $this->getDatabaseConnection()->insert(
+                self::TABLENAME,
+                [
+                    self::COLUMNNAME_ENTRY_ID   => $newFileId,
+                    self::COLUMNNAME_STORAGE    => $this->storageUid,
+                    self::COLUMNNAME_DATA       => $fileContents,
+                ],
+                static::getColumnTypes()
             );
-        }
-
-        if ($removeOriginal) {
-            if (!is_writable($localFilePath)) {
+            if (1 !== $numberInserted) {
                 throw new FileOperationErrorException(
-                    sprintf(
-                        'Cannot write file "%s" to remove it from the file system after adding it to the storage.',
-                        $localFilePath
-                    ),
-                    1578465610
+                    sprintf('Failed to insert new file with name "%s" into the database', $newFileName),
+                    1578465756
                 );
             }
+        });
+
+        // Only after the commit: if it failed, the original must still exist.
+        if ($removeOriginal) {
             unlink($localFilePath);
         }
-
-        $this->getDatabaseConnection()->commit();
 
         $this->setExistenceCacheEntry($newFileId, true);
 
@@ -487,7 +446,6 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function createFile($fileName, $parentFolderIdentifier): string
     {
-        $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($parentFolderIdentifier)) {
             throw new FileOperationErrorException(
                 sprintf(
@@ -500,32 +458,30 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
 
         $newFileIdentifier = $parentFolderIdentifier . $this->sanitizeFileName($fileName);
-        $emptyFileData = [
-            self::COLUMNNAME_ENTRY_ID  => $newFileIdentifier,
-            self::COLUMNNAME_STORAGE   => $this->storageUid,
-            self::COLUMNNAME_DATA      => '',
-        ];
+        $this->executeInTransaction(function () use ($newFileIdentifier, $fileName, $parentFolderIdentifier): void {
+            $result = $this->getDatabaseConnection()->insert(
+                self::TABLENAME,
+                [
+                    self::COLUMNNAME_ENTRY_ID  => $newFileIdentifier,
+                    self::COLUMNNAME_STORAGE   => $this->storageUid,
+                    self::COLUMNNAME_DATA      => '',
+                ],
+                static::getColumnTypes()
+            );
+            if (1 !== $result) {
+                throw new FileOperationErrorException(
+                    sprintf(
+                        'Could not create file with name "%s" in folder with identifier "%s"',
+                        $fileName,
+                        $parentFolderIdentifier
+                    ),
+                    1578245824
+                );
+            }
+        });
 
-        $result = $this->getDatabaseConnection()->insert(
-            self::TABLENAME,
-            $emptyFileData,
-            static::getColumnTypes()
-        );
-        if (1 === $result) {
-            $this->getDatabaseConnection()->commit();
-            $this->setExistenceCacheEntry($newFileIdentifier, true);
-            return $newFileIdentifier;
-        }
-
-        $this->getDatabaseConnection()->rollBack();
-        throw new FileOperationErrorException(
-            sprintf(
-                'Could not create file with name "%s" in folder with identifier "%s"',
-                $fileName,
-                $parentFolderIdentifier
-            ),
-            1578245824
-        );
+        $this->setExistenceCacheEntry($newFileIdentifier, true);
+        return $newFileIdentifier;
     }
 
     /**
@@ -540,10 +496,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function copyFileWithinStorage($fileIdentifier, $targetFolderIdentifier, $fileName): string
     {
-        $this->getDatabaseConnection()->beginTransaction();
-
         if (!$this->folderExists($targetFolderIdentifier)) {
-            $this->getDatabaseConnection()->rollBack();
             throw new FolderDoesNotExistException(
                 sprintf(
                     'Target folder with ID "%s" to copy file with ID "%s" to does not exist',
@@ -555,7 +508,6 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
 
         if ($this->fileExistsInFolder($fileName, $targetFolderIdentifier)) {
-            $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
                 sprintf(
                     'Target folder with ID "%s" already contains an entry with name "%s".',
@@ -569,27 +521,26 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         $row = $this->getEntryRow($fileIdentifier);
 
         $newFileIdentifier = $targetFolderIdentifier . $this->sanitizeFileName($fileName);
-        $numberInsertedRows = $this->getDatabaseConnection()->insert(
-            self::TABLENAME,
-            [
-                self::COLUMNNAME_ENTRY_ID  => $newFileIdentifier,
-                self::COLUMNNAME_STORAGE   => $this->storageUid,
-                self::COLUMNNAME_DATA      => $row[self::COLUMNNAME_DATA],
-            ],
-            static::getColumnTypes()
-        );
+        $this->executeInTransaction(function () use ($newFileIdentifier, $row, $targetFolderIdentifier): void {
+            $numberInsertedRows = $this->getDatabaseConnection()->insert(
+                self::TABLENAME,
+                [
+                    self::COLUMNNAME_ENTRY_ID  => $newFileIdentifier,
+                    self::COLUMNNAME_STORAGE   => $this->storageUid,
+                    self::COLUMNNAME_DATA      => $row[self::COLUMNNAME_DATA],
+                ],
+                static::getColumnTypes()
+            );
+            if (1 !== $numberInsertedRows) {
+                throw new FileOperationErrorException(
+                    sprintf('Could not copy file "%s".', $targetFolderIdentifier),
+                    1578247389
+                );
+            }
+        });
 
-        if (1 === $numberInsertedRows) {
-            $this->getDatabaseConnection()->commit();
-            $this->setExistenceCacheEntry($newFileIdentifier, true);
-            return $newFileIdentifier;
-        }
-
-        $this->getDatabaseConnection()->rollBack();
-        throw new FileOperationErrorException(
-            sprintf('Could not copy file "%s".', $targetFolderIdentifier),
-            1578247389
-        );
+        $this->setExistenceCacheEntry($newFileIdentifier, true);
+        return $newFileIdentifier;
     }
 
     /**
@@ -621,9 +572,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             return $fileIdentifier;
         }
 
-        $this->getDatabaseConnection()->beginTransaction();
         if ($this->fileExists($newFileIdentifier)) {
-            $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
                 sprintf(
                     'Cannot move file with ID "%s" to "%s" because that file already exists.',
@@ -634,25 +583,23 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        $numberUpdated = $this->getDatabaseConnection()->update(
-            self::TABLENAME,
-            [
-                self::COLUMNNAME_ENTRY_ID   => $newFileIdentifier,
-            ],
-            [
-                self::COLUMNNAME_ENTRY_ID   => $fileIdentifier,
-            ]
-        );
-
-        if (1 !== $numberUpdated) {
-            $this->getDatabaseConnection()->rollBack();
-            throw new FileOperationErrorException(
-                sprintf('Failed to move file with ID "%s"', $fileIdentifier),
-                1578682088
+        $this->executeInTransaction(function () use ($fileIdentifier, $newFileIdentifier): void {
+            $numberUpdated = $this->getDatabaseConnection()->update(
+                self::TABLENAME,
+                [
+                    self::COLUMNNAME_ENTRY_ID   => $newFileIdentifier,
+                ],
+                [
+                    self::COLUMNNAME_ENTRY_ID   => $fileIdentifier,
+                ]
             );
-        }
-
-        $this->getDatabaseConnection()->commit();
+            if (1 !== $numberUpdated) {
+                throw new FileOperationErrorException(
+                    sprintf('Failed to move file with ID "%s"', $fileIdentifier),
+                    1578682088
+                );
+            }
+        });
 
         $this->setExistenceCacheEntry($fileIdentifier, false);
         $this->setExistenceCacheEntry($newFileIdentifier, true);
@@ -669,11 +616,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function replaceFile($fileIdentifier, $localFilePath): bool
     {
-        $newContents = $this->getBlobDataFromLocalFile($localFilePath);
-
-        $this->getDatabaseConnection()->beginTransaction();
         if (!$this->fileExists($fileIdentifier)) {
-            $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
                 sprintf(
                     'File with ID "%s" to replace does not exist',
@@ -683,18 +626,21 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        $this->getDatabaseConnection()->update(
-            self::TABLENAME,
-            [
-                self::COLUMNNAME_DATA       => $newContents,
-            ],
-            [
-                self::COLUMNNAME_ENTRY_ID   => $fileIdentifier,
-            ],
-            static::getColumnTypes()
-        );
+        $newContents = $this->getBlobDataFromLocalFile($localFilePath);
 
-        $this->getDatabaseConnection()->commit();
+        $this->executeInTransaction(function () use ($fileIdentifier, $newContents): void {
+            $this->getDatabaseConnection()->update(
+                self::TABLENAME,
+                [
+                    self::COLUMNNAME_DATA       => $newContents,
+                ],
+                [
+                    self::COLUMNNAME_ENTRY_ID   => $fileIdentifier,
+                ],
+                static::getColumnTypes()
+            );
+        });
+
         return true;
     }
 
@@ -707,9 +653,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function deleteFile($fileIdentifier): bool
     {
-        $this->getDatabaseConnection()->beginTransaction();
         if (!$this->fileExists($fileIdentifier)) {
-            $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
                 sprintf(
                     'File with ID "%s" to delete does not exist',
@@ -719,22 +663,18 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        $numberDeleted = $this->getDatabaseConnection()->delete(
-            self::TABLENAME,
-            [
-                self::COLUMNNAME_ENTRY_ID => $fileIdentifier
-            ],
-            static::getColumnTypes()
-        );
+        $numberDeleted = $this->executeInTransaction(function () use ($fileIdentifier): int {
+            return $this->getDatabaseConnection()->delete(
+                self::TABLENAME,
+                [
+                    self::COLUMNNAME_ENTRY_ID => $fileIdentifier
+                ],
+                static::getColumnTypes()
+            );
+        });
 
-        if (1 === $numberDeleted) {
-            $this->getDatabaseConnection()->commit();
-            $this->setExistenceCacheEntry($fileIdentifier, false);
-            return true;
-        } else {
-            $this->getDatabaseConnection()->rollBack();
-            return false;
-        }
+        $this->setExistenceCacheEntry($fileIdentifier, false);
+        return 1 === $numberDeleted;
     }
 
     /**
@@ -795,9 +735,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function moveFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName): array
     {
-        $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($sourceFolderIdentifier)) {
-            $this->getDatabaseConnection()->rollBack();
             throw new FolderDoesNotExistException(
                 sprintf('Folder "%s" for moving does not exist.', $sourceFolderIdentifier),
                 1578682477
@@ -805,7 +743,6 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
 
         if (!$this->folderExists($targetFolderIdentifier)) {
-            $this->getDatabaseConnection()->rollBack();
             throw new FolderDoesNotExistException(
                 sprintf(
                     'Folder "%s" for moving folder "%s" to does not exist.',
@@ -816,51 +753,35 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
-        $executedQuery = $queryBuilder
-            ->select(self::COLUMNNAME_ENTRY_ID)
-            ->from(self::TABLENAME)
-            ->where(
-                $this->getConditionForAllSubEntries($queryBuilder, $sourceFolderIdentifier, true)
-            )
-            ->execute();
-
         $identifierMap = [];
-        while (false !== ($entryId = $executedQuery->fetchOne())) {
-
-            if (!$this->isWithinFolder($entryId, $sourceFolderIdentifier)) {
-                continue;
-            }
-
-            $newEntryIdentifier = $targetFolderIdentifier . $this->sanitizeFileName($newFolderName) . '/'
+        foreach ($this->getSubEntryIdentifiers($sourceFolderIdentifier, true) as $entryId) {
+            $identifierMap[$entryId] = $targetFolderIdentifier . $this->sanitizeFileName($newFolderName) . '/'
                 . substr($entryId, strlen($sourceFolderIdentifier));
-            $numberUpdated = $this->getDatabaseConnection()->update(
-                self::TABLENAME,
-                [
-                    self::COLUMNNAME_ENTRY_ID => $newEntryIdentifier,
-                ],
-                [
-                    self::COLUMNNAME_ENTRY_ID => $entryId,
-                ]
-            );
-
-            if (1 !== $numberUpdated) {
-                $executedQuery->free();
-                $this->getDatabaseConnection()->rollBack();
-                throw new FileOperationErrorException(
-                    sprintf(
-                        'Moving folder failed because entry with ID "%s" in storage %d could not be moved',
-                        $entryId,
-                        $this->storageUid
-                    ),
-                    1578679807
-                );
-            }
-
-            $identifierMap[$entryId] = $newEntryIdentifier;
         }
-        $executedQuery->free();
-        $this->getDatabaseConnection()->commit();
+
+        $this->executeInTransaction(function () use ($identifierMap): void {
+            foreach ($identifierMap as $entryId => $newEntryIdentifier) {
+                $numberUpdated = $this->getDatabaseConnection()->update(
+                    self::TABLENAME,
+                    [
+                        self::COLUMNNAME_ENTRY_ID => $newEntryIdentifier,
+                    ],
+                    [
+                        self::COLUMNNAME_ENTRY_ID => $entryId,
+                    ]
+                );
+                if (1 !== $numberUpdated) {
+                    throw new FileOperationErrorException(
+                        sprintf(
+                            'Moving folder failed because entry with ID "%s" in storage %d could not be moved',
+                            $entryId,
+                            $this->storageUid
+                        ),
+                        1578679807
+                    );
+                }
+            }
+        });
 
         foreach ($identifierMap as $oldIdentifier => $newEntryIdentifier) {
             $this->setExistenceCacheEntry($oldIdentifier, false);
@@ -881,9 +802,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
      */
     public function copyFolderWithinStorage($sourceFolderIdentifier, $targetFolderIdentifier, $newFolderName): bool
     {
-        $this->getDatabaseConnection()->beginTransaction();
         if (!$this->folderExists($sourceFolderIdentifier)) {
-            $this->getDatabaseConnection()->rollBack();
             throw new FolderDoesNotExistException(
                 sprintf(
                     'Folder with ID "%s" to copy to folder "%s" does not exist.',
@@ -895,7 +814,6 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
 
         if ($this->folderExistsInFolder($newFolderName, $targetFolderIdentifier)) {
-            $this->getDatabaseConnection()->rollBack();
             throw new FileOperationErrorException(
                 sprintf(
                     'There already is a folder named "%s" in folder with ID "%s".',
@@ -906,44 +824,53 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        $copiedFolderIdentifier = $this->createFolder($newFolderName, $targetFolderIdentifier);
-
-        $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
-        $executedStatement = $queryBuilder
-            ->select(self::COLUMNNAME_ENTRY_ID, self::COLUMNNAME_DATA)
-            ->from(self::TABLENAME)
-            ->where($this->getConditionForAllSubEntries($queryBuilder, $sourceFolderIdentifier))
-            ->execute();
-
+        $copiedFolderIdentifier = null;
         $dataToInsert = [];
-        while (false !== ($row = $executedStatement->fetchAssociative())) {
-            $oldIdentifier = $row[self::COLUMNNAME_ENTRY_ID];
-            if (!$this->isWithinFolder($oldIdentifier, $sourceFolderIdentifier)) {
-                continue;
+        $this->executeInTransaction(
+            function () use (
+                $sourceFolderIdentifier,
+                $targetFolderIdentifier,
+                $newFolderName,
+                &$copiedFolderIdentifier,
+                &$dataToInsert
+            ): void {
+                $copiedFolderIdentifier = $this->createFolder($newFolderName, $targetFolderIdentifier);
+
+                $queryBuilder = $this->getDatabaseConnection()->createQueryBuilder();
+                $executedStatement = $queryBuilder
+                    ->select(self::COLUMNNAME_ENTRY_ID, self::COLUMNNAME_DATA)
+                    ->from(self::TABLENAME)
+                    ->where($this->getConditionForAllSubEntries($queryBuilder, $sourceFolderIdentifier))
+                    ->execute();
+
+                while (false !== ($row = $executedStatement->fetchAssociative())) {
+                    $oldIdentifier = $row[self::COLUMNNAME_ENTRY_ID];
+                    if (!$this->isWithinFolder($oldIdentifier, $sourceFolderIdentifier)) {
+                        continue;
+                    }
+                    $dataToInsert[] = [
+                        self::COLUMNNAME_ENTRY_ID   => $copiedFolderIdentifier
+                            . substr($oldIdentifier, strlen($sourceFolderIdentifier)),
+                        self::COLUMNNAME_STORAGE    => $this->storageUid,
+                        self::COLUMNNAME_DATA       => $row[self::COLUMNNAME_DATA],
+                    ];
+                }
+
+                // An empty folder has nothing to copy but the folder itself, created above.
+                $numberInserted = [] === $dataToInsert ? 0 : $this->getDatabaseConnection()->bulkInsert(
+                    self::TABLENAME,
+                    $dataToInsert,
+                    self::COLUMNNAMES,
+                    static::getColumnTypes()
+                );
+                if (count($dataToInsert) !== $numberInserted) {
+                    throw new FileOperationErrorException(
+                        sprintf('Could not copy all entries of folder "%s".', $sourceFolderIdentifier),
+                        1794958302
+                    );
+                }
             }
-            $newIdentifier = $copiedFolderIdentifier . substr($oldIdentifier, strlen($sourceFolderIdentifier));
-
-            $dataToInsert[] = [
-                self::COLUMNNAME_ENTRY_ID   => $newIdentifier,
-                self::COLUMNNAME_STORAGE    => $this->storageUid,
-                self::COLUMNNAME_DATA       => $row[self::COLUMNNAME_DATA],
-            ];
-        }
-
-        // An empty folder has nothing to copy but the folder itself, created above.
-        $numberInserted = [] === $dataToInsert ? 0 : $this->getDatabaseConnection()->bulkInsert(
-            self::TABLENAME,
-            $dataToInsert,
-            self::COLUMNNAMES,
-            static::getColumnTypes()
         );
-
-        if (count($dataToInsert) !== $numberInserted) {
-            $this->getDatabaseConnection()->rollBack();
-            return false;
-        }
-
-        $this->getDatabaseConnection()->commit();
 
         $this->setExistenceCacheEntry($copiedFolderIdentifier, true);
         foreach ($dataToInsert as $item) {
@@ -951,6 +878,32 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         }
 
         return true;
+    }
+
+    /**
+     * Runs database writes in a transaction: commits if the callback succeeds, rolls
+     * back and rethrows if it throws.
+     *
+     * Only for the writes: validate input before, so that expected failures (folder
+     * missing, name taken, ...) don't roll back. Within a transaction of the caller,
+     * a rollback marks the caller's whole transaction as rollback-only.
+     *
+     * @template T
+     * @param callable(): T $writes
+     * @return T
+     */
+    private function executeInTransaction(callable $writes)
+    {
+        $connection = $this->getDatabaseConnection();
+        $connection->beginTransaction();
+        try {
+            $result = $writes();
+            $connection->commit();
+            return $result;
+        } catch (\Throwable $throwable) {
+            $connection->rollBack();
+            throw $throwable;
+        }
     }
 
     /**
