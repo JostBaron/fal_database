@@ -1067,7 +1067,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
     {
         $folderIdentifier = $this->canonicalizeAndCheckFolderIdentifier($folderIdentifier);
 
-        return str_starts_with($identifier, $folderIdentifier);
+        return $this->isWithinFolder($identifier, $folderIdentifier);
     }
 
     /**
