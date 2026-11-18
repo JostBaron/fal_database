@@ -16,3 +16,9 @@ services:
 
   Jbaron\FalDatabase\Service\MigrationService:
     class: 'Jbaron\FalDatabase\Service\MigrationService'
+
+  # A service so that TYPO3 12 finds the #[UpgradeWizard] attribute. Private, so the
+  # container drops it when EXT:install isn't installed.
+  Jbaron\FalDatabase\Upgrades\EntryTableUpgradeWizard:
+    class: 'Jbaron\FalDatabase\Upgrades\EntryTableUpgradeWizard'
+    public: false

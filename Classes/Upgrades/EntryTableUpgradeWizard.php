@@ -9,6 +9,7 @@ use Doctrine\DBAL\Schema\Table;
 use TYPO3\CMS\Core\Database\Connection;
 use TYPO3\CMS\Core\Database\ConnectionPool;
 use TYPO3\CMS\Core\Utility\GeneralUtility;
+use TYPO3\CMS\Install\Attribute\UpgradeWizard;
 use TYPO3\CMS\Install\Updates\UpgradeWizardInterface;
 
 /**
@@ -19,7 +20,11 @@ use TYPO3\CMS\Install\Updates\UpgradeWizardInterface;
  * The database analyzer can't do this alone: on PostgreSQL it adds the new primary key
  * without dropping the old one, which fails, and it doesn't change table collations.
  * So this wizard has no "database up to date" prerequisite and works on the old table.
+ *
+ * Registered by the attribute on TYPO3 12, and in ext_localconf.php on TYPO3 11, which
+ * ignores the attribute. getIdentifier() is only needed by TYPO3 11.
  */
+#[UpgradeWizard('falDatabaseEntryTable')]
 class EntryTableUpgradeWizard implements UpgradeWizardInterface
 {
     private const TABLENAME = 'tx_jbaron_faldatabase_entry';

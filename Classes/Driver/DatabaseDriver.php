@@ -5,9 +5,9 @@ namespace Jbaron\FalDatabase\Driver;
 
 use Doctrine\DBAL\ConnectionException;
 use Doctrine\DBAL\Driver\Exception;
-use Doctrine\DBAL\Driver\ResultStatement;
 use Doctrine\DBAL\ParameterType;
 use Doctrine\DBAL\Query\Expression\CompositeExpression;
+use Doctrine\DBAL\Result;
 use Doctrine\DBAL\Types\Types;
 use InvalidArgumentException;
 use Psr\Log\LoggerInterface;
@@ -321,7 +321,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                             $queryBuilder->createNamedParameter($chunk, Connection::PARAM_STR_ARRAY)
                         )
                     )
-                    ->execute();
+                    ->executeStatement();
             }
         });
 
@@ -845,7 +845,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
                     ->select(self::COLUMNNAME_ENTRY_ID, self::COLUMNNAME_DATA)
                     ->from(self::TABLENAME)
                     ->where($this->getConditionForAllSubEntries($queryBuilder, $sourceFolderIdentifier))
-                    ->execute();
+                    ->executeQuery();
 
                 while (false !== ($row = $executedStatement->fetchAssociative())) {
                     $oldIdentifier = $row[self::COLUMNNAME_ENTRY_ID];
@@ -928,7 +928,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             );
         }
 
-        /** @var ResultStatement $statement */
+        /** @var Result $statement */
         $statement = $this->getDatabaseConnection()->select(
             [
                 self::COLUMNNAME_DATA
@@ -1535,10 +1535,10 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
         string $folderIdentifier,
         bool $includeFolder = false
     ): CompositeExpression {
-        $expression = $queryBuilder->expr()->andX(
+        $expression = $queryBuilder->expr()->and(
             $queryBuilder->expr()->eq(
                 self::COLUMNNAME_STORAGE,
-                $queryBuilder->expr()->literal($this->storageUid)
+                $queryBuilder->createNamedParameter($this->storageUid, ParameterType::INTEGER)
             ),
             $queryBuilder->expr()->like(
                 self::COLUMNNAME_ENTRY_ID,
@@ -1546,7 +1546,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             )
         );
         if (!$includeFolder) {
-            $expression = $queryBuilder->expr()->andX(
+            $expression = $queryBuilder->expr()->and(
                 $expression,
                 $queryBuilder->expr()->neq(
                     self::COLUMNNAME_ENTRY_ID,
@@ -1576,7 +1576,7 @@ class DatabaseDriver extends AbstractHierarchicalFilesystemDriver
             ->select(self::COLUMNNAME_ENTRY_ID)
             ->from(self::TABLENAME)
             ->where($this->getConditionForAllSubEntries($queryBuilder, $folderIdentifier, $includeFolder))
-            ->execute()
+            ->executeQuery()
             ->fetchFirstColumn();
 
         return array_values(array_filter(
